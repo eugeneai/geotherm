@@ -15,7 +15,7 @@ P = 0.74;               %      partition coefficient for upper crustal
                         %      heat production
 H = [0,0.4,0.4,0.02];   % [uW/m^3] heat production of lithospheric
                         %      layers.  Note that upper crustal heat
-                        %      production is computed by 
+                        %      production is computed by
                         %      A = (1 - P)*q0/D and is not zero.
 % index to reference heat flow for elevation computation
 iref = 3;
@@ -38,7 +38,7 @@ for i = 1:length(q0)
     % plot results
     plot(T(:,i),z,'k-');
 end
-xlabel('Temperature [\circC]');
+xxlabel('Temperature [\circC]');
 ylabel('Depth [km]');
 axis([0 ceil(max(T(:))/100)*100+100 0 zmax]);
 axis ij;

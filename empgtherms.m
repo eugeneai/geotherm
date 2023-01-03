@@ -8,11 +8,12 @@ function [T,z,lambda,A,q,alpha] = empgtherms(q0,maxz,dz,D,zbot,H);
 %
 % Inputs:
 %    q0    - Surface heat flow          mW/m^2
-%    zmoho - Depth to the moho          km
 %    maxz  - Maximum depth of model     km
-%    D     - Thickness of upper crust   km 
+%    dz    -
+%    D     - Thickness of upper crust   km
 %    zbot  - Depth to layer base        km
 %    H     - Layer heat production      muW/m^3
+%    zmoho - Depth to the moho          km
 %
 % Outputs:
 %    T     - Temperature as a function of depth         C
@@ -68,7 +69,7 @@ ik = 1;
 for i = 1:lenz-1
     zsg = (1.4209 + exp(3.9073e-3*T(i) - 6.8041) - rhoc*g*zmoho*1e-6)/(rhom*g*1e-6);
     if z(i) - zmoho > zsg
-        ik = length(zbot) + 1; 
+        ik = length(zbot) + 1;
     elseif zbot(ik) < z(i+1)
         ik = ik + 1;
     end
@@ -110,7 +111,7 @@ for j = i+1:lenz
          / (rhom*g*1e-6);
 
     if z(i) > zsg
-        ik = length(zbot) + 1; 
+        ik = length(zbot) + 1;
     elseif zbot(ik) < z(j+1)
         ik = ik + 1;
     end
