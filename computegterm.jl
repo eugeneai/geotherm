@@ -4,13 +4,15 @@ using DataFrames
 using CSV
 using Plots
 using Debugger
+using Formatting
+using LaTeXStrings
 
 includet("EmpgTherm.jl")
 # using .EmpgTherm
 
 # geotherm parameters
-#q0 = 30:10:120     # [mW/m^2] surface heat flow
-q0 = 40                 # [mW/m^2] surface heat flow
+q0 = 30:10:120     # [mW/m^2] surface heat flow
+#q0 = 40                 # [mW/m^2] surface heat flow
 
 D = 16                  # [km] thickness of upper crust
 zbot = [16,23,39,300]   # [km] base of lithospheric layers
@@ -31,8 +33,10 @@ iref = 3
 T = undef
 alpha_ = undef
 de=zeros(0)
+labels=[]
+plt = plot()
 for i = 1:length(q0)
-    global T, alpha_, de
+    global T, alpha_, de, labels, plt
     # compute surface heat production
     A0 = (1 - P) * q0[i] / D
     H[1] = A0
@@ -58,11 +62,17 @@ for i = 1:length(q0)
 
     # plot results
     # plot(T(:,i),z,'k-');
-    plot!(T[:,i], z)
+    # format("q0[{}]={}", i, q0[i])
+    label = format("q0[{}]={}", i, q0[i])
+    push!(labels, label)
+    # plot!(T[:,i], z, linewith=3)
+    # plot!(plt, _T, z, label = label, linewith=3)
+    plot!(plt, z, _T, label = label, linewith=3, yflip=true)
 end
-#xxlabel("Temperature [\circC]");
-#ylabel("Depth [km]");
-#axis([0 ceil(max(T(:))/100)*100+100 0 zmax]);
+xlabel!(L"Temperature ${}^\circ$C");
+ylabel!("Depth [km]");
+xlims!(0, zmax)
+ylims!(0, ceil(maximum(T[:])/100)*100+100)
 #axis ij;
 #axis square;
 #set(gca,'Box','on');
@@ -80,7 +90,8 @@ end
 #         fprintf('%7.2f       %7.2f\n',z(i),T(i));
 #     end
 # end
-savefig("geotherm.svg")
+savefig(plt, "geotherm.svg")
+plt = undef
 
 
 function main()
