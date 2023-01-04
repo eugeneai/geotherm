@@ -67,12 +67,12 @@ for i = 1:length(q0)
     push!(labels, label)
     # plot!(T[:,i], z, linewith=3)
     # plot!(plt, _T, z, label = label, linewith=3)
-    plot!(plt, z, _T, label = label, linewith=3, yflip=true)
+    plot!(plt, _T, z, label = label, linewith=3, yflip=true)
 end
 xlabel!(L"Temperature ${}^\circ$C");
 ylabel!("Depth [km]");
-xlims!(0, zmax)
-ylims!(0, ceil(maximum(T[:])/100)*100+100)
+ylims!(0, zmax)
+xlims!(0, ceil(maximum(T[:])/100)*100+100)
 #axis ij;
 #axis square;
 #set(gca,'Box','on');
