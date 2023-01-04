@@ -1,6 +1,4 @@
-using DataFrames
-using CSV
-using Plot
+module EmpgTherm
 
 function empgtherms(q0, maxsz, dz, D, zbot, H)
 # EMPGTHERMS - Computes empirical geotherms.
@@ -117,7 +115,7 @@ function empgtherms(q0, maxsz, dz, D, zbot, H)
         elseif zbot[ik] < z[j+1]
             ik = ik + 1;
         end
-        % thermal conductivity coefficients
+        # thermal conductivity coefficients
         lambda[j] = thermcond(ik,zmoho,z[j],0.5*(Ta[j] + Ta[j+1]));
     end
 
@@ -153,7 +151,7 @@ function tccomp(ik,zmoho,z,dz,tau,q,lambda0,A)
         end
 
         if c > maxit
-            warning('TCCOMP did not converge...');
+            @warn("TCCOMP did not converge...");
         end
 
         # New dT becomes guess dT0
@@ -185,7 +183,8 @@ function thermcond(ik,zmoho,z,T)
 
     lambda = (k[1] + k[2]/T + k[3]*T^2)*(1 + k[4]*P)
     if nargout == 2
-        varargout{1} = (2*k[3]*T - k[2]*T^-2)*(1 + k[4]*P)
+        # varargout{1} = (2*k[3]*T - k[2]*T^-2)*(1 + k[4]*P)
+        varargout = (2*k[3]*T - k[2]*T^-2)*(1 + k[4]*P)
     end
 
     return lambda, varargout
@@ -246,3 +245,4 @@ function acoef(ia,T)
         a = aa[ia,:]
     end
 end
+end # of module
