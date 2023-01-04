@@ -9,7 +9,7 @@ includet("EmpgTherm.jl")
 # using .EmpgTherm
 
 # geotherm parameters
-# q0 = [30:10:120];     # [mW/m^2] surface heat flow
+#q0 = 30:10:120     # [mW/m^2] surface heat flow
 q0 = 40                 # [mW/m^2] surface heat flow
 
 D = 16                  # [km] thickness of upper crust
@@ -30,8 +30,9 @@ iref = 3
 # subplot(121); hold on;
 T = undef
 alpha_ = undef
+de=zeros(0)
 for i = 1:length(q0)
-    global T, alpha_
+    global T, alpha_, de
     # compute surface heat production
     A0 = (1 - P) * q0[i] / D
     H[1] = A0
@@ -50,20 +51,17 @@ for i = 1:length(q0)
         alpha_ = hcat(alpha_,_alpha_)
     end
 
-    # T,z,k,A,q,alpha_ = empgtherms(q0[i],zmax,dz,D,zbot,H)
-    # answer = empgtherms(q0[i],zmax,dz,D,zbot,H)
-
     # thermal elevation from paper (de) from emperical geotherms (dem)
     if length(q0) > 1
-        # de[i] = sum(T[:,i].*alpha_[:,i] - T[:,1].*alpha_[:,1])*dz;
-        de[i] = sum(T[:,i].*alpha_[:,i] - T[:,1].*alpha_[:,1])*dz;
+        de = vcat(de, sum(T[:,i].*alpha_[:,i] - T[:,1].*alpha_[:,1])*dz)
     end
 
     # plot results
     # plot(T(:,i),z,'k-');
+    plot!(T[:,i], z)
 end
-#xxlabel('Temperature [\circC]');
-#ylabel('Depth [km]');
+#xxlabel("Temperature [\circC]");
+#ylabel("Depth [km]");
 #axis([0 ceil(max(T(:))/100)*100+100 0 zmax]);
 #axis ij;
 #axis square;
@@ -82,6 +80,7 @@ end
 #         fprintf('%7.2f       %7.2f\n',z(i),T(i));
 #     end
 # end
+savefig("geotherm.svg")
 
 
 function main()

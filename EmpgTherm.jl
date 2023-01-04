@@ -99,7 +99,7 @@ function empgtherms(q0, maxsz, dz, D, zbot, H)
         end
     end
     if adiabat == 0
-        T = T - 273
+        T = T .- 273
         return T,z,lambda,A,q,alpha
     end
 
