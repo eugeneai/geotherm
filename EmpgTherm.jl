@@ -1,4 +1,5 @@
-module EmpgTherm
+#module EmpgTherm
+#export empgtherms
 
 function empgtherms(q0, maxsz, dz, D, zbot, H)
 # EMPGTHERMS - Computes empirical geotherms.
@@ -6,7 +7,7 @@ function empgtherms(q0, maxsz, dz, D, zbot, H)
 # Based on method by Hasterok & Chapman [EPSL, 2011] method.
 #
 # Example Call:
-#    [T,z,k,A,q] = empgtherms(q0,maxz,dz,D,zbot,H);
+#    [T,z,k,A,q,alpha] = empgtherms(q0,maxz,dz,D,zbot,H);
 #
 # Inputs:
 #    q0    - Surface heat flow          mW/m^2
@@ -17,6 +18,7 @@ function empgtherms(q0, maxsz, dz, D, zbot, H)
 #    zbot  - Depth to layer base        km
 #    H     - Layer heat production      muW/m^3
 #    zmoho - Depth to the moho          km
+#    alpha - ....
 #
 # Outputs:
 #    T     - Temperature as a function of depth         C
@@ -28,7 +30,7 @@ function empgtherms(q0, maxsz, dz, D, zbot, H)
 # Last Modified: 15 March 2008 by D. Hasterok
 
 # Depths
-    z = [0:dz:maxsz]
+    z = 0:dz:maxsz
     lenz = length(z)
     g = 10
     rhoc = 2850
@@ -38,18 +40,21 @@ function empgtherms(q0, maxsz, dz, D, zbot, H)
 
     lambda = zeros(lenz-1)
     alpha = zeros(lenz)
-    A = zeros(lenz-1)
+    A = zeros(0)
     for i = 1:length(zbot)
+        global il, iu
         if i != 1
             il = iu
             iu = round(Int64, zbot[i]/dz)
         else
             il = 1
-            iu = round(D / dz)
+            iu = round(Int64, D / dz)
         end
-        A[il:iu] = H[i]
+        println(il, ":", iu, "=", H[i])
+        _A = zeros(length(il:iu))
+        _A[1:end] .= H[i]
+        A = vcat(A, _A)
     end
-
     A = A[:] # TODO: what for?
 
     # Temperature conditions
@@ -58,7 +63,7 @@ function empgtherms(q0, maxsz, dz, D, zbot, H)
     dT = 0.3
 
     # Adiabatic gradient
-    Ta = Ta0 + z*dT
+    Ta = Ta0 .+ z * dT
 
     # Compute heat flow
     q = q0 * ones(lenz)
@@ -70,6 +75,8 @@ function empgtherms(q0, maxsz, dz, D, zbot, H)
     adiabat = 0
     ik = 1
     for i = 1:lenz - 1
+        global iend
+        iend = i
         zsg = (1.4209 + exp(3.9073e-3*T[i] - 6.8041) - rhoc*g*zmoho*1e-6)/(rhom*g*1e-6)
         if z[i] - zmoho > zsg
             ik = length(zbot) + 1
@@ -93,11 +100,11 @@ function empgtherms(q0, maxsz, dz, D, zbot, H)
     end
     if adiabat == 0
         T = T - 273
-        return T,z,k,A,q
+        return T,z,lambda,A,q,alpha
     end
 
     # If the geotherm reaches the adiabat compute adiabat
-    for j = i+1:lenz
+    for j = iend+1:lenz
         T[j] = Ta[j];
         q[j] = q[j-1];
         A[j] = A[j-1];
@@ -108,20 +115,20 @@ function empgtherms(q0, maxsz, dz, D, zbot, H)
             break
         end
 
-        zsg = (1.4209 + exp(3.9073e-3 * Ta[i] - 6.8041) - rhoc*g*zmoho*1e-6) / (rhom*g*1e-6)
+        zsg = (1.4209 + exp(3.9073e-3 * Ta[iend] - 6.8041) - rhoc*g*zmoho*1e-6) / (rhom*g*1e-6)
 
-        if z[i] > zsg
+        if z[iend] > zsg
             ik = length(zbot) + 1;
         elseif zbot[ik] < z[j+1]
             ik = ik + 1;
         end
         # thermal conductivity coefficients
-        lambda[j] = thermcond(ik,zmoho,z[j],0.5*(Ta[j] + Ta[j+1]));
+        lambda[j], _ = thermcond(ik,zmoho,z[j],0.5*(Ta[j] + Ta[j+1]));
     end
 
-    T = T - 273;
+    T = T .- 273;
 
-    return T,z,k,A,q
+    return T,z,lambda,A,q,alpha
 end
 
 function tccomp(ik,zmoho,z,dz,tau,q,lambda0,A)
@@ -136,7 +143,7 @@ function tccomp(ik,zmoho,z,dz,tau,q,lambda0,A)
 
     gamma = (q*dz - 0.5*A*dz^2);
 
-    while 1
+    while true
         # thermal conductivity
         lambda, dlambda = thermcond(ik,zmoho,z,0.5*(guess+tau));
 
@@ -162,7 +169,7 @@ function tccomp(ik,zmoho,z,dz,tau,q,lambda0,A)
     T = guess;
 
     # Compute k
-    lambda = thermcond(ik,zmoho,z,0.5*(T+tau));
+    lambda, _ = thermcond(ik,zmoho,z,0.5*(T+tau));
 
     return T, lambda
 end
@@ -182,12 +189,9 @@ function thermcond(ik,zmoho,z,T)
     end
 
     lambda = (k[1] + k[2]/T + k[3]*T^2)*(1 + k[4]*P)
-    if nargout == 2
-        # varargout{1} = (2*k[3]*T - k[2]*T^-2)*(1 + k[4]*P)
-        varargout = (2*k[3]*T - k[2]*T^-2)*(1 + k[4]*P)
-    end
+    dlambda = (2*k[3]*T - k[2]*T^-2)*(1 + k[4]*P)
 
-    return lambda, varargout
+    return lambda, dlambda
 end
 
 function kcoef(ik,T)
@@ -202,7 +206,7 @@ function kcoef(ik,T)
           2.717 -398.93  0.032e-7 0.0652;
           2.320  -96.98 -0.981e-7 0.0463];
 
-    if ik <= 3 & T > 844
+    if ik <= 3 && T > 844
         k = kb[ik,:]
     else
         k = ka[ik,:]
@@ -245,4 +249,4 @@ function acoef(ia,T)
         a = aa[ia,:]
     end
 end
-end # of module
+#end # of module

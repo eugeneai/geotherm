@@ -18,7 +18,7 @@ function [T,z,lambda,A,q,alpha] = empgtherms(q0,maxz,dz,D,zbot,H);
 % Outputs:
 %    T     - Temperature as a function of depth         C
 %    z     - Depth                                      meters
-%    k     - Thermal conductivity                       W/m/K
+%    lambda- Thermal conductivity                       W/m/K
 %    A     - Heat production                            W/m^3
 %    q     - Heat flow                                  W/m^2
 %

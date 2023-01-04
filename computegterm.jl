@@ -1,9 +1,12 @@
+# push!(LOAD_PATH,pwd())
+using Revise
 using DataFrames
 using CSV
 using Plots
+using Debugger
 
-include("EmpgTherm.jl")
-using .EmpgTherm
+includet("EmpgTherm.jl")
+# using .EmpgTherm
 
 # geotherm parameters
 # q0 = [30:10:120];     # [mW/m^2] surface heat flow
@@ -25,17 +28,35 @@ iref = 3
 
 # figure;
 # subplot(121); hold on;
+T = undef
+alpha_ = undef
 for i = 1:length(q0)
+    global T, alpha_
     # compute surface heat production
     A0 = (1 - P) * q0[i] / D
     H[1] = A0
 
     # compute geotherm from emperical rather than long form
-    T[:,i],z,k,A,q,alpha[:,i] = EmpgTherm.empgtherms(q0[i],zmax,dz,D,zbot,H)
+    # T[:,i],z,k,A,q,alpha_[:,i] = empgtherms(q0[i],zmax,dz,D,zbot,H)
+    _T,z,k,A,q,_alpha_ = empgtherms(q0[i],zmax,dz,D,zbot,H)
+    if T == undef
+        T = _T
+    else
+        T = hcat(T,_T)
+    end
+    if alpha_ == undef
+        alpha_ = _alpha_
+    else
+        alpha_ = hcat(alpha_,_alpha_)
+    end
+
+    # T,z,k,A,q,alpha_ = empgtherms(q0[i],zmax,dz,D,zbot,H)
+    # answer = empgtherms(q0[i],zmax,dz,D,zbot,H)
 
     # thermal elevation from paper (de) from emperical geotherms (dem)
     if length(q0) > 1
-        de[i] = sum(T[:,i].*alpha[:,i] - T[:,1].*alpha[:,1])*dz;
+        # de[i] = sum(T[:,i].*alpha_[:,i] - T[:,1].*alpha_[:,1])*dz;
+        de[i] = sum(T[:,i].*alpha_[:,i] - T[:,1].*alpha_[:,1])*dz;
     end
 
     # plot results
@@ -61,3 +82,8 @@ end
 #         fprintf('%7.2f       %7.2f\n',z(i),T(i));
 #     end
 # end
+
+
+function main()
+    println("Hello")
+end
