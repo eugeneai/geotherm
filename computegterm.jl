@@ -70,7 +70,7 @@ for i = 1:length(q0)
     plot!(plt, _T, z, label = label, linewith=3, yflip=true)
 end
 xlabel!(L"Temperature ${}^\circ$C");
-label!("Depth [km]");
+ylabel!("Depth [km]");
 ylims!(0, zmax)
 xlims!(0, ceil(maximum(T[:])/100)*100+100)
 #axis ij;
