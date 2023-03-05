@@ -1,7 +1,7 @@
 # push!(LOAD_PATH,pwd())
 using Revise
-using DataFrames
 using CSV
+using DataFrames
 using Plots
 using Debugger
 using Formatting
@@ -9,6 +9,9 @@ using LaTeXStrings
 
 includet("EmpgTherm.jl")
 # using .EmpgTherm
+
+pt = CSV.read("data/PTdata.csv", DataFrame, delim=';', decimal=',')
+println(pt)
 
 # geotherm parameters
 q0 = 30:10:120     # [mW/m^2] surface heat flow
