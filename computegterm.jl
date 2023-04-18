@@ -6,11 +6,14 @@ using Plots
 using Debugger
 using Formatting
 using LaTeXStrings
+using Interpolations
+using Optim
 
 includet("EmpgTherm.jl")
 # using .EmpgTherm
 struct GTInit
-    q0   :: StepRange{Int64, Int64} # [mW/m^2] surface heat flow
+    q0   :: Any
+        # StepRange{Int64, Int64} # [mW/m^2] surface heat flow
     D    :: Float64                 # [km] thickness of upper crust
     zbot :: Vector{Int64}           # [km] base of lithospheric layers
     zmax :: Float64                 # [km] maximum depth of model
@@ -38,7 +41,7 @@ struct GTResult
     T :: Any
 end
 
-function defaultGTInit(q0 :: StepRange{Int64, Int64} = 34:1:40,
+function defaultGTInit(q0 = 34:1:40,
                        opt::Bool = false,  TinC::Bool = true) :: GTInit
     GTInit(q0, 16, [16,23,39,300], 225,
            0.1, 0.74, [0,0.4,0.4,0.02], 3, opt, TinC)
@@ -114,6 +117,65 @@ function userComputeGeotherm(initParameters :: GTInit,
     GTResult(ini, GTs, dataf, maximumf, T)
 end
 
+
+function myInterpolate(xs, ys)
+    b = minimum(xs)
+    e = maximum(xs)
+    dx = (e-b)/(length(xs)-1)
+    ifu = interpolate(ys, BSpline(Cubic()))
+    # ifu = interpolate(ys, BSpline(Quadratic()))
+    function f(x)
+        bb = x.-b
+        v = bb./dx
+        ifu(v.+1)
+    end
+    f
+end
+
+function chisquareGT(GT::Geotherm, D::DataFrame) :: Float64
+    z = GT.z
+    T = GT.T
+    gti = myInterpolate(z,T)
+    s = 0.0 :: Float64
+    for row in eachrow(D)
+        cT = (gti(row.Dkm)-row.TC)^2
+        s = s + cT
+    end
+    s
+end
+
+function chisquare(result::GTResult) :: Any
+    qs = result.ini.q0
+    chis = Vector{Float64}()
+    for (i, q) in enumerate(qs)
+        chi = chisquareGT(result.GT[i], result.D)
+        push!(chis, chi)
+    end
+    (qs, myInterpolate(qs, chis))
+end
+
+function optimize1(f,
+                  start::Float64,
+                  dx::Float64=0.1,
+                  eps::Float64=0.001) :: Float64
+    # Simple bitwise approximation
+    x = start
+    dir = 1.0
+    pf = f(x-dx)
+    df = dx
+    while abs(df) > eps
+        nf = f(x)
+        if abs(nf)>abs(pf)
+            dir = 0-dir
+            dx = dx/2.0
+        end
+        x = x + dx
+        df = nf-pf
+        pf = nf
+    end
+    x
+end
+
 function main()
     q0 = 34:1:40         # [mW/m^2] surface heat flow
     GP = defaultGTInit(q0)
@@ -155,7 +217,72 @@ function main()
     #     end
     # end
     savefig(plt, "geotherm.svg")
+
+    plt = plot()
+    (xs, ifu) = chisquare(answer)
+    nxsb = minimum(xs)
+    nxse = maximum(xs)
+    nxs = nxsb:((nxse-nxsb)/100):nxse
+    plot!(plt, nxs, ifu(nxs), linewith=3, label=L"Cubic BSpline of $\chi^2$",)
+    plot!(plt, xs, ifu(xs), seriestype=:scatter,
+          label=L"$\chi^2$", markercolor = :green)
+    sp = convert(Float64, nxsb + (nxse-nxsb)/2)
+    function ifuo(v::Vector{Float64})
+        x = v[1]
+        print("Calc: ", x)
+        ifu(x)
+    end
+
+    function ifu1(x::Float64)::Float64
+        # print(format("Calc: {}\n", x))
+        ifu(x)
+    end
+
+    res = optimize(ifu1,
+                   convert(Float64, nxsb),
+                   convert(Float64, nxse),
+                   GoldenSection())
+    miny = Optim.minimum(res)
+    minx = Optim.minimizer(res)
+    print("Minimum:", minx, "\n")
+    plot!(plt, [minx], [miny], seriestype=:scatter,
+          markercolor = :red,
+          label=format(L"Appox. $\min\quad {{q_0}}={}$", minx),
+          legend=:top)
+
+    xlabel!(L"$q_0$ value")
+    ylabel!(L"$\chi^2$")
+    # ylims!(0, answer.ini.zmax)
+    # xlims!(0, ceil(maximum(answer.T[:])/100)*100+100)
+    savefig(plt, "geotherm-chisquare.svg")
     plt = undef
+
+    print("Compiling for an optimal q0\n")
+
+
+
+    q0 = convert(Float64, minx)         # [mW/m^2] surface heat flow
+
+    GPopt = defaultGTInit([q0])
+
+    answero = userComputeGeotherm(GPopt, "data/PTdata.csv")
+
+    plt = plot()
+
+    plot!(plt, answero.D.TC, answero.D.Dkm,
+          seriestype=:scatter, label="Measurements")
+    xlabel!(L"Temperature ${}^\circ$C");
+    ylabel!("Depth [km]");
+    ylims!(0, answero.ini.zmax)
+    xlims!(0, ceil(maximum(answero.T[:])/100)*100+100)
+    # function plt_gt(gt::Geotherm)
+    #     plot!(plt, gt.T, gt.z, label=gt.label,
+    #           linewith=3, yflip=true,
+    #           legend=:bottomleft)
+    # end
+    foreach(plt_gt, answero.GT)
+    savefig(plt, "geotherm-opt.svg")
+
 end
 
 main()
