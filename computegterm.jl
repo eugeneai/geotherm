@@ -177,7 +177,8 @@ function optimize1(f,
 end
 
 function main()
-    q0 = 34:1:40         # [mW/m^2] surface heat flow
+    # q0 = 34:1:40         # [mW/m^2] surface heat flow
+    q0 = 20:10:100         # [mW/m^2] surface heat flow
     GP = defaultGTInit(q0)
 
     answer = userComputeGeotherm(GP, "data/PTdata.csv")
