@@ -30,6 +30,7 @@ extern "C"
         jl_printf(jl_stderr_stream(), "\n");
       }
     }
+    return 0;
   }
 
   int test_embedding() {

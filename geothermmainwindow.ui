@@ -362,6 +362,6 @@
   </connection>
  </connections>
  <slots>
-  <slot>aboutAction()</slot>
+  <slot>actionAbout()</slot>
  </slots>
 </ui>

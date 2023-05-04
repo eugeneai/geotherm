@@ -15,7 +15,7 @@ public:
     GeothermMainWindow(QWidget *parent = nullptr);
     ~GeothermMainWindow();
 public slots:
-    void actionAbout ();
+    void actionAbout();
 
 private:
     Ui::GeothermMainWindow *ui;
