@@ -1,6 +1,7 @@
 // This file is a part of Julia. License is MIT: http://julialang.org/license
 
 #include <julia.h>
+#include "embedding.h"
 
 extern "C"
 {
@@ -19,18 +20,23 @@ extern "C"
   int start_embedding()
   {
     jl_init();
-
-    {
-      // Simple running Julia code
-      printf("Try to run a command in Julia\n");
-      jl_eval_string("using InteractiveUtils");
-      jl_eval_string("versioninfo()");
-      if (jl_exception_occurred()) {
-        jl_call2(jl_get_function(jl_base_module, "show"), jl_stderr_obj(), jl_exception_occurred());
-        jl_printf(jl_stderr_stream(), "\n");
-      }
-    }
+    printf("Try to run a command in Julia\n");
+    handle_eval_string("using InteractiveUtils");
+    handle_eval_string("versioninfo()");
     return 0;
+  }
+
+  jl_value_t * handle_eval_string(const char * str) {
+    printf("JULIA: '%s'\n", str);
+    jl_value_t * ret = nullptr;
+    ret = jl_eval_string(str);
+    if (jl_exception_occurred()) {
+      jl_call2(jl_get_function(jl_base_module, "show"), jl_stderr_obj(), jl_exception_occurred());
+      jl_printf(jl_stderr_stream(), "\n");
+      ret = nullptr;
+    } else {
+    }
+    return ret;
   }
 
   int test_embedding() {

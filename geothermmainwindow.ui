@@ -6,8 +6,8 @@
    <rect>
     <x>0</x>
     <y>0</y>
-    <width>800</width>
-    <height>600</height>
+    <width>949</width>
+    <height>985</height>
    </rect>
   </property>
   <property name="windowTitle">
@@ -20,138 +20,211 @@
       <item>
        <widget class="QTabWidget" name="views">
         <property name="currentIndex">
-         <number>0</number>
+         <number>1</number>
         </property>
         <widget class="QWidget" name="input">
          <attribute name="title">
           <string>Input</string>
          </attribute>
+         <layout class="QVBoxLayout" name="verticalLayout_2">
+          <item>
+           <layout class="QHBoxLayout" name="horizontalLayout">
+            <item>
+             <widget class="QLabel" name="label_8">
+              <property name="text">
+               <string>Data file, CSV:</string>
+              </property>
+             </widget>
+            </item>
+            <item>
+             <widget class="QLineEdit" name="dataFileName">
+              <property name="text">
+               <string>/home/eugeneai/projects/code/dymsh/data/PTdata.csv</string>
+              </property>
+             </widget>
+            </item>
+            <item>
+             <widget class="QPushButton" name="pushButton">
+              <property name="text">
+               <string>Choose...</string>
+              </property>
+             </widget>
+            </item>
+           </layout>
+          </item>
+          <item>
+           <layout class="QHBoxLayout" name="horizontalLayout_3">
+            <item>
+             <spacer name="horizontalSpacer">
+              <property name="orientation">
+               <enum>Qt::Horizontal</enum>
+              </property>
+              <property name="sizeHint" stdset="0">
+               <size>
+                <width>40</width>
+                <height>20</height>
+               </size>
+              </property>
+             </spacer>
+            </item>
+            <item>
+             <widget class="QPushButton" name="pushButton_2">
+              <property name="text">
+               <string>Load</string>
+              </property>
+              <property name="default">
+               <bool>true</bool>
+              </property>
+             </widget>
+            </item>
+           </layout>
+          </item>
+          <item>
+           <widget class="QGroupBox" name="groupBox">
+            <property name="title">
+             <string>Input Data</string>
+            </property>
+            <layout class="QVBoxLayout" name="verticalLayout_3">
+             <item>
+              <widget class="QTableView" name="csvView"/>
+             </item>
+            </layout>
+           </widget>
+          </item>
+         </layout>
         </widget>
         <widget class="QWidget" name="init">
          <attribute name="title">
           <string>Initials</string>
          </attribute>
          <layout class="QGridLayout" name="gridLayout">
-          <item row="0" column="0" colspan="2">
-           <widget class="QLabel" name="label">
+          <item row="7" column="3">
+           <widget class="QLineEdit" name="H">
             <property name="text">
-             <string>q0</string>
-            </property>
-            <property name="buddy">
-             <cstring>lineEdit</cstring>
+             <string>[0,0.4,0.4,0.02]</string>
             </property>
            </widget>
           </item>
-          <item row="0" column="3">
-           <widget class="QLineEdit" name="lineEdit">
+          <item row="6" column="3">
+           <widget class="QLineEdit" name="P">
+            <property name="text">
+             <string>0.74</string>
+            </property>
+           </widget>
+          </item>
+          <item row="1" column="3">
+           <widget class="QLineEdit" name="q0">
             <property name="text">
              <string>34:1:40</string>
             </property>
            </widget>
           </item>
-          <item row="1" column="0">
-           <widget class="QLabel" name="label_2">
+          <item row="1" column="0" colspan="2">
+           <widget class="QLabel" name="label">
             <property name="text">
-             <string>D</string>
+             <string>q0</string>
             </property>
             <property name="buddy">
-             <cstring>lineEdit_2</cstring>
+             <cstring>q0</cstring>
             </property>
            </widget>
           </item>
-          <item row="1" column="3">
-           <widget class="QLineEdit" name="lineEdit_2">
+          <item row="7" column="0">
+           <widget class="QLabel" name="label_7">
+            <property name="text">
+             <string>H</string>
+            </property>
+            <property name="buddy">
+             <cstring>H</cstring>
+            </property>
+           </widget>
+          </item>
+          <item row="4" column="3">
+           <widget class="QLineEdit" name="Zmax">
+            <property name="text">
+             <string>255</string>
+            </property>
+           </widget>
+          </item>
+          <item row="5" column="3">
+           <widget class="QLineEdit" name="Dz">
+            <property name="text">
+             <string>0.1</string>
+            </property>
+           </widget>
+          </item>
+          <item row="3" column="0">
+           <widget class="QLabel" name="label_3">
+            <property name="text">
+             <string>Zbot</string>
+            </property>
+            <property name="buddy">
+             <cstring>Zbot</cstring>
+            </property>
+           </widget>
+          </item>
+          <item row="5" column="0">
+           <widget class="QLabel" name="label_5">
+            <property name="text">
+             <string>Dz</string>
+            </property>
+            <property name="buddy">
+             <cstring>Dz</cstring>
+            </property>
+           </widget>
+          </item>
+          <item row="8" column="3">
+           <widget class="QLineEdit" name="iref">
+            <property name="text">
+             <string>3</string>
+            </property>
+           </widget>
+          </item>
+          <item row="8" column="0">
+           <widget class="QLabel" name="label_15">
+            <property name="text">
+             <string>iref</string>
+            </property>
+            <property name="buddy">
+             <cstring>iref</cstring>
+            </property>
+           </widget>
+          </item>
+          <item row="2" column="3">
+           <widget class="QLineEdit" name="D">
             <property name="text">
              <string>16</string>
             </property>
            </widget>
           </item>
           <item row="2" column="0">
-           <widget class="QLabel" name="label_3">
+           <widget class="QLabel" name="label_2">
             <property name="text">
-             <string>Zbot</string>
+             <string>D</string>
             </property>
             <property name="buddy">
-             <cstring>lineEdit_3</cstring>
+             <cstring>D</cstring>
             </property>
            </widget>
           </item>
-          <item row="2" column="3">
-           <widget class="QLineEdit" name="lineEdit_3">
-            <property name="text">
-             <string>[16,23,39,300]</string>
-            </property>
-           </widget>
-          </item>
-          <item row="3" column="0">
-           <widget class="QLabel" name="label_4">
-            <property name="text">
-             <string>Zmax</string>
-            </property>
-            <property name="buddy">
-             <cstring>lineEdit_4</cstring>
-            </property>
-           </widget>
-          </item>
-          <item row="3" column="3">
-           <widget class="QLineEdit" name="lineEdit_4">
-            <property name="text">
-             <string>255</string>
-            </property>
-           </widget>
-          </item>
-          <item row="4" column="0">
-           <widget class="QLabel" name="label_5">
-            <property name="text">
-             <string>Dz</string>
-            </property>
-            <property name="buddy">
-             <cstring>lineEdit_5</cstring>
-            </property>
-           </widget>
-          </item>
-          <item row="4" column="3">
-           <widget class="QLineEdit" name="lineEdit_5">
-            <property name="text">
-             <string>0.1</string>
-            </property>
-           </widget>
-          </item>
-          <item row="5" column="3">
-           <widget class="QLineEdit" name="lineEdit_6">
-            <property name="text">
-             <string>0.74</string>
-            </property>
-           </widget>
-          </item>
-          <item row="5" column="0">
+          <item row="6" column="0">
            <widget class="QLabel" name="label_6">
             <property name="text">
              <string>P</string>
             </property>
             <property name="buddy">
-             <cstring>lineEdit_6</cstring>
+             <cstring>P</cstring>
             </property>
            </widget>
           </item>
-          <item row="6" column="3">
-           <widget class="QLineEdit" name="lineEdit_7">
+          <item row="3" column="3">
+           <widget class="QLineEdit" name="Zbot">
             <property name="text">
-             <string>[0,0.4,0.4,0.02]</string>
+             <string>[16,23,39,300]</string>
             </property>
            </widget>
           </item>
-          <item row="6" column="0">
-           <widget class="QLabel" name="label_7">
-            <property name="text">
-             <string>H</string>
-            </property>
-            <property name="buddy">
-             <cstring>lineEdit_7</cstring>
-            </property>
-           </widget>
-          </item>
-          <item row="10" column="3">
+          <item row="11" column="3">
            <spacer name="verticalSpacer">
             <property name="orientation">
              <enum>Qt::Vertical</enum>
@@ -164,37 +237,41 @@
             </property>
            </spacer>
           </item>
-          <item row="7" column="3">
-           <widget class="QLineEdit" name="lineEdit_15">
+          <item row="4" column="0">
+           <widget class="QLabel" name="label_4">
             <property name="text">
-             <string>3</string>
-            </property>
-           </widget>
-          </item>
-          <item row="7" column="0">
-           <widget class="QLabel" name="label_15">
-            <property name="text">
-             <string>iref</string>
+             <string>Zmax</string>
             </property>
             <property name="buddy">
-             <cstring>lineEdit_15</cstring>
+             <cstring>Zmax</cstring>
             </property>
            </widget>
           </item>
-          <item row="0" column="6">
-           <widget class="QRadioButton" name="radioButton">
+          <item row="0" column="3">
+           <widget class="QLabel" name="label_9">
             <property name="text">
-             <string>Optimize</string>
+             <string>Values of the fields are evaluated as Julia expressions within loaded sources, no check made.</string>
             </property>
-            <property name="checked">
-             <bool>false</bool>
+           </widget>
+          </item>
+          <item row="9" column="6">
+           <widget class="QPushButton" name="calcPushButton">
+            <property name="text">
+             <string>Calculate</string>
+            </property>
+           </widget>
+          </item>
+          <item row="4" column="6">
+           <widget class="QPushButton" name="pushButton_3">
+            <property name="text">
+             <string>Check Data</string>
             </property>
            </widget>
           </item>
           <item row="1" column="6">
-           <widget class="QRadioButton" name="radioButton_2">
+           <widget class="QCheckBox" name="opt">
             <property name="text">
-             <string>Tepperature in Celsiums</string>
+             <string>Optimize</string>
             </property>
             <property name="checked">
              <bool>true</bool>
@@ -207,6 +284,20 @@
          <attribute name="title">
           <string>Output, table</string>
          </attribute>
+         <layout class="QVBoxLayout" name="verticalLayout_5">
+          <item>
+           <widget class="QGroupBox" name="groupBox_2">
+            <property name="title">
+             <string>Geotherm calculation results, tabular view</string>
+            </property>
+            <layout class="QVBoxLayout" name="verticalLayout_4">
+             <item>
+              <widget class="QTableView" name="csvResultView"/>
+             </item>
+            </layout>
+           </widget>
+          </item>
+         </layout>
         </widget>
         <widget class="QWidget" name="graphicsOutput">
          <attribute name="title">
@@ -224,7 +315,7 @@
     <rect>
      <x>0</x>
      <y>0</y>
-     <width>800</width>
+     <width>949</width>
      <height>21</height>
     </rect>
    </property>
@@ -307,24 +398,15 @@
   </action>
  </widget>
  <tabstops>
-  <tabstop>lineEdit</tabstop>
-  <tabstop>lineEdit_2</tabstop>
-  <tabstop>lineEdit_3</tabstop>
-  <tabstop>lineEdit_4</tabstop>
-  <tabstop>lineEdit_5</tabstop>
-  <tabstop>lineEdit_6</tabstop>
-  <tabstop>lineEdit_7</tabstop>
-  <tabstop>lineEdit_15</tabstop>
-  <tabstop>radioButton</tabstop>
-  <tabstop>radioButton_2</tabstop>
-  <tabstop>views</tabstop>
-  <tabstop>lineEdit_14</tabstop>
-  <tabstop>lineEdit_12</tabstop>
-  <tabstop>lineEdit_10</tabstop>
-  <tabstop>lineEdit_13</tabstop>
-  <tabstop>lineEdit_11</tabstop>
-  <tabstop>lineEdit_8</tabstop>
-  <tabstop>lineEdit_9</tabstop>
+  <tabstop>q0</tabstop>
+  <tabstop>D</tabstop>
+  <tabstop>Zbot</tabstop>
+  <tabstop>Zmax</tabstop>
+  <tabstop>Dz</tabstop>
+  <tabstop>P</tabstop>
+  <tabstop>H</tabstop>
+  <tabstop>iref</tabstop>
+  <tabstop>opt</tabstop>
  </tabstops>
  <resources/>
  <connections>

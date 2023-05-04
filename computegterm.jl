@@ -24,7 +24,6 @@ struct GTInit
     iref :: Int64                   # index to reference heat flow
                                     # for elevation computation
     opt  :: Bool                    # Wether to apply optimization for q0
-    TinC :: Bool                    # Is
 end
 
 struct Geotherm
@@ -42,25 +41,24 @@ struct GTResult
 end
 
 function defaultGTInit(q0 = 34:1:40,
-                       opt::Bool = false,  TinC::Bool = true) :: GTInit
+                       opt::Bool = false) :: GTInit
     GTInit(q0, 16, [16,23,39,300], 225,
-           0.1, 0.74, [0,0.4,0.4,0.02], 3, opt, TinC)
+           0.1, 0.74, [0,0.4,0.4,0.02], 3, opt)
 end
 
-function userComputeGeotherm(initParameters :: GTInit,
-                             fileName :: String) :: GTResult
-    ini = initParameters
+function userLoadCSV(fileName :: String) :: DataFrame
     pt = CSV.read(fileName, DataFrame, delim=';', decimal=',')
     PGPa = pt.P_GPa
     Dkm = pt.Depth_km
     TC = pt.T_C
-    if ini.TinC
-        TK = TC .+ 273
-    else
-        TK = TC
-    end
+    TK = TC .+ 273
+    dataf = DataFrame(D_km=Dkm, P_mPa=Dkm, T_C=TC, T_K=TK)
+    return dataf
+end
 
-    dataf = DataFrame(Dkm=Dkm, TC=TC, TK=TK)
+function userComputeGeotherm(initParameters :: GTInit,
+                             dataf :: DataFrame) :: GTResult
+    ini = initParameters
     maximumf = combine(dataf, [:Dkm, :TC, :TK] .=> maximum)
     println(maximumf)
 
@@ -176,12 +174,12 @@ function optimize1(f,
     x
 end
 
-function main()
+function run()
     # q0 = 34:1:40         # [mW/m^2] surface heat flow
     q0 = 20:10:100         # [mW/m^2] surface heat flow
     GP = defaultGTInit(q0)
-
-    answer = userComputeGeotherm(GP, "data/PTdata.csv")
+    dataf = userLoadCSV("data/PTdata.csv")
+    answer = userComputeGeotherm(GP, dataf)
 
     plt = plot()
     # push!(labels, label)
@@ -284,6 +282,9 @@ function main()
     foreach(plt_gt, answero.GT)
     savefig(plt, "geotherm-opt.svg")
 
+end
+
+function main()
 end
 
 main()
