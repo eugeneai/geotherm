@@ -10,6 +10,7 @@ namespace Ui { class GeothermMainWindow; }
 QT_END_NAMESPACE
 
 class QCSVModel;
+class QGTModel;
 
 class GeothermMainWindow : public QMainWindow
 {
@@ -33,6 +34,7 @@ private slots:
 private:
     Ui::GeothermMainWindow *ui;
     QCSVModel * csvModel = nullptr;
+    QGTModel * gtModel = nullptr;
 
 protected:
     bool compModuleLoaded = false;
@@ -40,27 +42,44 @@ protected:
     QString constructInitialExpr();
 public:
     bool checkInitialData();
+    void reloadReport();
 };
 
 jl_value_t *  handleEval(QString cmd);
 bool loadCompModule();
 
-class QCSVModel : public QAbstractItemModel {
-
-private:
+class QDataFrameModel :public QAbstractItemModel {
+protected:
     jl_value_t * dataFrame = nullptr;
 public:
-    QCSVModel(QObject * parent = nullptr) :
+    QDataFrameModel(QObject * parent = nullptr) :
         QAbstractItemModel(parent) {}
-    int columnCount(const QModelIndex &parent) const override;
-    int rowCount (const QModelIndex &parent) const override;
     jl_value_t * setDataFrame(jl_value_t * df);
+    bool isValid() const {return dataFrame != nullptr;};
     QModelIndex index(int row, int column, const QModelIndex &parent = QModelIndex()) const override;
     QModelIndex parent(const QModelIndex &index) const override;
+};
+
+class QCSVModel : public QDataFrameModel {
+public:
+    QCSVModel(QObject * parent = nullptr) :
+        QDataFrameModel(parent) {}
+    int columnCount(const QModelIndex &parent) const override;
+    int rowCount (const QModelIndex &parent) const override;
     QVariant data(const QModelIndex &index, int role = Qt::DisplayRole) const override;
     QVariant headerData(int section, Qt::Orientation orientation,
                         int role = Qt::DisplayRole) const override;
-    bool isValid() {return dataFrame != nullptr;};
+};
+
+class QGTModel : public QDataFrameModel {
+public:
+    QGTModel(QObject * parent = nullptr) :
+        QDataFrameModel(parent) {}
+    int columnCount(const QModelIndex &parent) const override;
+    int rowCount (const QModelIndex &parent) const override;
+    QVariant data(const QModelIndex &index, int role = Qt::DisplayRole) const override;
+    QVariant headerData(int section, Qt::Orientation orientation,
+                        int role = Qt::DisplayRole) const override;
 };
 
 #endif // GEOTHERMMAINWINDOW_H

@@ -18,7 +18,8 @@ GeothermMainWindow::GeothermMainWindow(QWidget *parent)
 {
     ui->setupUi(this);
     csvModel = new QCSVModel();
-    // ui->csvView->setModel(csvModel);
+    gtModel = new QGTModel();
+    reloadReport();
 }
 
 void GeothermMainWindow::actionAbout() {
@@ -28,6 +29,7 @@ void GeothermMainWindow::actionAbout() {
 
 GeothermMainWindow::~GeothermMainWindow()
 {
+    delete gtModel;
     delete csvModel;
     delete ui;
 }
@@ -61,15 +63,24 @@ void GeothermMainWindow::on_pushButton_clicked()
 
 // -----------------------------------------------------------
 
-QModelIndex QCSVModel::index(int row, int column,
+jl_value_t * QDataFrameModel::setDataFrame(jl_value_t * df) {
+    beginResetModel();
+    dataFrame = df;
+    endResetModel();
+    return df;
+}
+
+QModelIndex QDataFrameModel::index(int row, int column,
                              const QModelIndex &parent) const {
     Q_UNUSED(parent);
     return createIndex(row,column,nullptr);
 }
 
-QModelIndex QCSVModel::parent(const QModelIndex &index) const {
+QModelIndex QDataFrameModel::parent(const QModelIndex &index) const {
     return createIndex(-1,-1);
 }
+
+// --------- QCSVModel -------------------------------------
 
 QVariant QCSVModel::data(const QModelIndex &index, int role) const {
     if (! index.isValid()) return QVariant();
@@ -100,23 +111,9 @@ QVariant QCSVModel::headerData(int section, Qt::Orientation orientation, int rol
             QString mname = name.replace("_",", ");
             return mname;
         }
-        /*
-        if (section == 0) return "D,km";
-        if (section == 1) return "P,mPa";
-        if (section == 2) return "T,C";
-        if (section == 3) return "T,K";
-        */
-
         return QString("Column %1").arg(section);
     } else
         return QString("%1").arg(section+1);
-}
-
-jl_value_t * QCSVModel::setDataFrame(jl_value_t * df) {
-    beginResetModel();
-    dataFrame = df;
-    endResetModel();
-    return df;
 }
 
 int QCSVModel::columnCount(const QModelIndex &parent) const {
@@ -134,6 +131,80 @@ int QCSVModel::rowCount (const QModelIndex &parent) const {
     } else return 1;
 }
 
+
+// ----------------GT Moel -------------------------------------
+
+
+QVariant QGTModel::data(const QModelIndex &index, int role) const {
+    if (! index.isValid()) return QVariant();
+    if (role == Qt::DisplayRole && isValid()) {
+        jl_value_t * ret = nullptr;
+        int row = index.row();
+        int col = index.column();
+        if (col == 0) {
+            ret = handleEval(QString("string(userResult.GT[1].z[%1])").arg(row+1));
+            if (ret != nullptr) {
+                return QString(jl_string_ptr(ret));
+            } else {
+                return QString("bad z");
+            }
+        }
+        QString cmd("string(userResult.GT[%2].T[%1])");
+        QString ncmd = cmd.arg(row+1).arg(col); // Long live, Julia!
+        ret = handleEval(ncmd);
+        if (ret != nullptr) {
+            return QString(jl_string_ptr(ret));
+        } else {
+            return QString("cannot show '%1'").arg(ncmd);
+        }
+    } else {
+        return QVariant();
+    }
+}
+
+QVariant QGTModel::headerData(int section, Qt::Orientation orientation, int role) const {
+    if (role != Qt::DisplayRole)
+        return QVariant();
+
+    if (orientation == Qt::Horizontal) {
+        if (isValid()) {
+            if (section==0) return "z";
+            QString cmd("string(userResult.GT[%1].label)");
+            QString ncmd = cmd.arg(section); // Long live, Julia!
+            jl_value_t * ret = handleEval(ncmd);
+            if (ret != nullptr) {
+                return QString(jl_string_ptr(ret));
+            } else {
+                return QString("cannot show '%1'").arg(ncmd);
+            }
+        }
+        return QString("Column %1").arg(section);
+    } else
+        return QString("%1").arg(section+1);
+}
+
+int QGTModel::columnCount(const QModelIndex &parent) const {
+    Q_UNUSED(parent);
+    if (isValid()) {
+        jl_value_t * ret = handleEval("size(userResult.GT,1)+1");
+        if (ret!=nullptr) {
+            return jl_unbox_int64(ret);
+        } else {
+            return 1;
+        }
+    } else return 10;
+}
+int QGTModel::rowCount (const QModelIndex &parent) const {
+    Q_UNUSED(parent);
+    if (dataFrame != nullptr) {
+        jl_value_t * ret = handleEval("size(userResult.GT[1].z,1)");
+        if (ret!=nullptr) {
+            return jl_unbox_int64(ret);
+        } else {
+            return 0;
+        }
+    } else return 1;
+}
 
 // --------------------------------------------------------------
 
@@ -167,9 +238,12 @@ bool loadCompModule() {
         compModuleLoaded = false;
     }
     cout.flush();
+    jl_value_t * ret = handleEval(QString("appRoot=\"%1\"").arg(appRoot));
+    if (ret==nullptr) {
+        QMessageBox::critical(nullptr, "Cannot set epplication root", "Something wrong with syntax");
+    };
     return compModuleLoaded;
 }
-
 
 
 void GeothermMainWindow::on_calcPushButton_clicked()
@@ -179,9 +253,32 @@ void GeothermMainWindow::on_calcPushButton_clicked()
                               "You did not load data!",
                               "In order to proceed with a compresesive computations, one must load an input deta. Proceeding to the page..");
         ui->views->setCurrentIndex(0);
-    } else {
-
+        return;
     }
+    if (! checkInitialData()) {
+        QMessageBox::critical(this,
+                              "Initial data is wrong",
+                              "Check syntax of all the expressions. Hints are available (mouse hover for 5 seconds).");
+        return;
+    }
+    jl_value_t * ret = handleEval("userResult=userComputeGeotherm(userInit, userDF)");
+    if (ret == nullptr) {
+        QMessageBox::critical(this,
+                              "Calculation failded!",
+                              "There is a problem with calculations, no results were obtained, see log!");
+        return;
+    }
+    gtModel->setDataFrame(ret);
+    ui->csvResultView->setModel(gtModel);
+    ret = handleEval("userPlot(userResult)");
+    if (ret==nullptr) {
+        QMessageBox::critical(this,
+                              "Plotting failded!",
+                              "There is a problem with plotting, results are obtained, but plots not, see log!");
+        // return;
+    }
+    reloadReport();
+    ui->views->setCurrentIndex(3);
 }
 
 
@@ -198,8 +295,7 @@ void GeothermMainWindow::on_pushButton_3_clicked()
 }
 
 QString GeothermMainWindow::constructInitialExpr() {
- // QString expr("GTInit(q0, 16, [16,23,39,300], 225, 0.1, 0.74, [0,0.4,0.4,0.02], 3, opt)");
-    QString exprtmpl("GTInit(%1, %2, %3, %4, %5, %6, %7, %8, %9)");
+    QString exprtmpl("userInit=GTInit(%1, %2, %3, %4, %5, %6, %7, %8, %9)");
     QString optCh;
     if (ui->opt->checkState()==Qt::Checked) {
         optCh="true";
@@ -225,3 +321,24 @@ bool GeothermMainWindow::checkInitialData() {
     return ret != nullptr;
 }
 
+void GeothermMainWindow::reloadReport() {
+    //QUrl u = QUrl::fromUserInput("https://edu.irnok.net/");
+    QFile ifile(QString("%1/report.html").arg(appRoot));
+    if (!ifile.open(QFile::ReadOnly | QFile::Text)) {
+        QMessageBox::critical(this,
+                              "Cannot load report template!",
+                              "Something wrong with report page template (report.html).");
+        return;
+    }
+    QTextStream i(&ifile);
+    QString content(i.readAll());
+
+    QUrl u = QUrl::fromUserInput(QString("file:%1/geotherm.svg").arg(appRoot));
+    ui->webPage->setUrl(u);
+    /*
+    QString gtURL = QString("file:%1/geotherm.svg").arg(appRoot);
+    QString interpContent = QString(content).arg(gtURL);
+    cout << endl << (interpContent.toStdString()) << endl;
+    ui->webPage->setHtml(interpContent);
+    */
+}

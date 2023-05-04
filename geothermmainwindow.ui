@@ -20,7 +20,7 @@
       <item>
        <widget class="QTabWidget" name="views">
         <property name="currentIndex">
-         <number>1</number>
+         <number>0</number>
         </property>
         <widget class="QWidget" name="input">
          <attribute name="title">
@@ -303,6 +303,17 @@
          <attribute name="title">
           <string>Output, graphics</string>
          </attribute>
+         <layout class="QHBoxLayout" name="horizontalLayout_4">
+          <item>
+           <widget class="QWebEngineView" name="webPage">
+            <property name="url">
+             <url>
+              <string>http://crust.irk.ru/</string>
+             </url>
+            </property>
+           </widget>
+          </item>
+         </layout>
         </widget>
        </widget>
       </item>
@@ -397,6 +408,13 @@
    </property>
   </action>
  </widget>
+ <customwidgets>
+  <customwidget>
+   <class>QWebEngineView</class>
+   <extends>QWidget</extends>
+   <header location="global">QtWebEngineWidgets/QWebEngineView</header>
+  </customwidget>
+ </customwidgets>
  <tabstops>
   <tabstop>q0</tabstop>
   <tabstop>D</tabstop>

@@ -11,12 +11,11 @@ set(CMAKE_CXX_STANDARD_REQUIRED ON)
 set(CMAKE_VERBOSE_MAKEFILE TRUE)
 
 find_package(QT NAMES Qt6 REQUIRED COMPONENTS Core Widgets LinguistTools)
-find_package(Qt6 REQUIRED COMPONENTS Widgets LinguistTools)
+find_package(Qt6 REQUIRED COMPONENTS Widgets LinguistTools WebEngineWidgets)
 qt_standard_project_setup()
 
 # set(CMAKE_MODULE_PATH ${CMAKE_CURRENT_SOURCE_DIR})
 
-# find_package(Julia REQUIRED)
 
 exec_program(julia
   ARGS "-e 'print(joinpath(Sys.BINDIR, Base.DATAROOTDIR, \"julia\"))'"
@@ -44,12 +43,6 @@ exec_program(julia
   OUTPUT_VARIABLE JULIA_LDLIBS
 )
 
-
-# set(CMAKE_CXX_FLAGS_DEBUG "${CMAKE_CXX_FLAGS_DEBUG} ${JULIA_CXXFLAGS} -O0 -ggdb")
-# set(CMAKE_CXX_FLAGS_MINSIZEREL "${CMAKE_CXX_FLAGS_MINSIZEREL} ${JULIA_CXXFLAGS}")
-# set(CMAKE_CXX_FLAGS_RELWITHDEBINFO "${CMAKE_CXX_FLAGS_RELWITHDEBINFO} ${JULIA_CXXFLAGS}")
-# set(CMAKE_CXX_FLAGS_RELEASE "${CMAKE_CXX_FLAGS_RELEASE} ${JULIA_CXXFLAGS}")
-
 set(TS_FILES Geotherm_ru_RU.ts)
 
 set(PROJECT_SOURCES
@@ -65,9 +58,6 @@ set(PROJECT_SOURCES
         ${TS_FILES}
 )
 
-# include_directories(AFTER ${})
-
-# target_link_libraries(Geotherm $<BUILD_INTERFACE:${Julia_LIBRARY}>)
 
 if(${QT_VERSION_MAJOR} GREATER_EQUAL 6)
     qt_add_executable(Geotherm
@@ -100,6 +90,7 @@ target_link_libraries(Geotherm
   PRIVATE
   Qt6::Widgets
   Qt6::Core
+  Qt6::WebEngineWidgets
   ${JULIA_LDFLAGS} ${JULIA_LDLIBS}
 )
 

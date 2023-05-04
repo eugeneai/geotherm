@@ -11,6 +11,9 @@ using Optim
 
 includet("EmpgTherm.jl")
 # using .EmpgTherm
+
+appRoot="/var/tmp"
+
 struct GTInit
     q0   :: Any
         # StepRange{Int64, Int64} # [mW/m^2] surface heat flow
@@ -30,6 +33,7 @@ struct Geotherm
     T :: Vector{Float64}
     z :: Vector{Float64}
     label :: String
+    q0:: Float64
 end
 
 struct GTResult
@@ -59,7 +63,7 @@ end
 function userComputeGeotherm(initParameters :: GTInit,
                              dataf :: DataFrame) :: GTResult
     ini = initParameters
-    maximumf = combine(dataf, [:Dkm, :TC, :TK] .=> maximum)
+    maximumf = combine(dataf, [:D_km, :T_C, :T_K] .=> maximum)
     println(maximumf)
 
     # println(pt)
@@ -89,7 +93,7 @@ function userComputeGeotherm(initParameters :: GTInit,
                                         ini.zbot,
                                         H)
         label = format("{}", ini.q0[i])
-        push!(GTs, Geotherm(_T, z, label))
+        push!(GTs, Geotherm(_T, z, label,ini.q0[i]))
 
         if T == undef
             T = _T
@@ -180,14 +184,17 @@ function run()
     GP = defaultGTInit(q0)
     dataf = userLoadCSV("data/PTdata.csv")
     answer = userComputeGeotherm(GP, dataf)
+    userPlot(answer)
+end
 
+function userPlot(answer::GTResult)
     plt = plot()
     # push!(labels, label)
     # plot!(plt, _T, z, label = label,
     #       linewith=3, yflip=true,
     #       legend=:bottomleft)
 
-    plot!(plt, answer.D.TC, answer.D.Dkm, seriestype=:scatter, label="Measurements")
+    plot!(plt, answer.D.T_C, answer.D.D_km, seriestype=:scatter, label="Measurements")
     xlabel!(L"Temperature ${}^\circ$C");
     ylabel!("Depth [km]");
     ylims!(0, answer.ini.zmax)
@@ -215,7 +222,7 @@ function run()
     #         fprintf('%7.2f       %7.2f\n',z(i),T(i));
     #     end
     # end
-    savefig(plt, "geotherm.svg")
+    savefig(plt, appRoot * "/geotherm.svg")
 
     plt = plot()
     (xs, ifu) = chisquare(answer)
@@ -253,7 +260,7 @@ function run()
     ylabel!(L"$\chi^2$")
     # ylims!(0, answer.ini.zmax)
     # xlims!(0, ceil(maximum(answer.T[:])/100)*100+100)
-    savefig(plt, "geotherm-chisquare.svg")
+    savefig(plt, appRoot * "/geotherm-chisquare.svg")
     plt = undef
 
     print("Compiling for an optimal q0\n")
@@ -268,7 +275,7 @@ function run()
 
     plt = plot()
 
-    plot!(plt, answero.D.TC, answero.D.Dkm,
+    plot!(plt, answero.D.T_C, answero.D.D_km,
           seriestype=:scatter, label="Measurements")
     xlabel!(L"Temperature ${}^\circ$C");
     ylabel!("Depth [km]");
@@ -280,8 +287,7 @@ function run()
     #           legend=:bottomleft)
     # end
     foreach(plt_gt, answero.GT)
-    savefig(plt, "geotherm-opt.svg")
-
+    savefig(plt, arppRoot * "/geotherm-opt.svg")
 end
 
 function main()
