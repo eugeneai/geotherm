@@ -4,6 +4,7 @@
 
 extern "C" {
   int start_embedding();
+  int test_embedding();
   int end_embedding(int rc);
 }
 

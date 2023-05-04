@@ -9,23 +9,30 @@ extern "C"
 #include <math.h>
 
 #ifdef _OS_WINDOWS_
-__declspec(dllexport)
+  __declspec(dllexport)
 #endif
-double my_c_sqrt(double x)
-{
+  double my_c_sqrt(double x)
+  {
     return sqrt(x);
-}
+  }
 
-int start_embedding()
-{
+  int start_embedding()
+  {
     jl_init();
 
     {
-        // Simple running Julia code
-
-        jl_eval_string("println(sqrt(2.0))");
+      // Simple running Julia code
+      printf("Try to run a command in Julia\n");
+      jl_eval_string("using InteractiveUtils");
+      jl_eval_string("versioninfo()");
+      if (jl_exception_occurred()) {
+        jl_call2(jl_get_function(jl_base_module, "show"), jl_stderr_obj(), jl_exception_occurred());
+        jl_printf(jl_stderr_stream(), "\n");
+      }
     }
+  }
 
+  int test_embedding() {
     {
         // Accessing the return value
 
@@ -99,13 +106,13 @@ int start_embedding()
         }
     }
     return 0;
-}
+  }
 
 
-int end_embedding(int rc) {
+  int end_embedding(int rc) {
     int ret = rc;
     jl_atexit_hook(ret);
     return ret;
-}
+  }
 
 }
