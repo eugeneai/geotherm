@@ -3,6 +3,8 @@
 #include <QApplication>
 #include <QLocale>
 #include <QTranslator>
+#include "embedding.h"
+
 
 int main(int argc, char *argv[])
 {
@@ -18,6 +20,7 @@ int main(int argc, char *argv[])
         }
     }
     GeothermMainWindow w;
+    start_embedding();
     w.show();
-    return a.exec();
+    return end_embedding(a.exec());
 }
