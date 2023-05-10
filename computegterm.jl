@@ -124,8 +124,8 @@ function myInterpolate(xs, ys)
     b = minimum(xs)
     e = maximum(xs)
     dx = (e-b)/(length(xs)-1)
-    ifu = interpolate(ys, BSpline(Cubic()))
-    # ifu = interpolate(ys, BSpline(Quadratic()))
+    ifu = interpolate(ys, BSpline(Cubic(Throw(OnGrid()))))
+    #ifu = interpolate(ys, BSpline(Quadratic()))
     function f(x)
         bb = x.-b
         v = bb./dx
@@ -140,7 +140,7 @@ function chisquareGT(GT::Geotherm, D::DataFrame) :: Float64
     gti = myInterpolate(z,T)
     s = 0.0 :: Float64
     for row in eachrow(D)
-        cT = (gti(row.Dkm)-row.TC)^2
+        cT = (gti(row.D_km)-row.T_C)^2
         s = s + cT
     end
     s
@@ -179,8 +179,8 @@ function optimize1(f,
 end
 
 function run()
-    # q0 = 34:1:40         # [mW/m^2] surface heat flow
-    q0 = 20:10:100         # [mW/m^2] surface heat flow
+    q0 = 35:0.2:39         # [mW/m^2] surface heat flow
+    # q0 = 20:10:100         # [mW/m^2] surface heat flow
     GP = defaultGTInit(q0)
     dataf = userLoadCSV("data/PTdata.csv")
     answer = userComputeGeotherm(GP, dataf)
@@ -270,8 +270,9 @@ function userPlot(answer::GTResult)
     q0 = convert(Float64, minx)         # [mW/m^2] surface heat flow
 
     GPopt = defaultGTInit([q0])
+    
 
-    answero = userComputeGeotherm(GPopt, "data/PTdata.csv")
+    answero = userComputeGeotherm(GPopt, answer.D)
 
     plt = plot()
 
@@ -287,10 +288,12 @@ function userPlot(answer::GTResult)
     #           legend=:bottomleft)
     # end
     foreach(plt_gt, answero.GT)
-    savefig(plt, arppRoot * "/geotherm-opt.svg")
+    savefig(plt, appRoot * "/geotherm-opt.svg")
+    print("Saved " * appRoot * "/geotherm-opt.svg")
 end
 
 function main()
+run()
 end
 
 main()
