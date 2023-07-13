@@ -50,12 +50,29 @@ function defaultGTInit(q0 = 34:1:40,
            0.1, 0.74, [0,0.4,0.4,0.02], 3, opt)
 end
 
+function depths(p)
+    d=p .* 30.4 .+ 6.3
+    return d
+end
+
 function userLoadCSV(fileName :: String) :: DataFrame
     pt = CSV.read(fileName, DataFrame, delim=';', decimal=',')
-    PGPa = pt.P_GPa
-    Dkm = pt.Depth_km
-    TC = pt.T_C
+    pt_n = names(pt)
+    print(pt_n)
+    TC = pt.t
     TK = TC .+ 273
+    if !("d" in pt_n)
+        if ("p" in pt_n)
+            PGPa = pt.p
+        elseif ("pm" in pt_n)
+            PGPa = pt.pm
+        elseif ("pk" in pt_n)
+            PGPa = pt.pk / 10.0
+        end
+        Dkm=depths(PGPa)
+    else
+        Dkm = pt.d
+    end
     dataf = DataFrame(D_km=Dkm, P_mPa=Dkm, T_C=TC, T_K=TK)
     return dataf
 end
@@ -270,7 +287,7 @@ function userPlot(answer::GTResult)
     q0 = convert(Float64, minx)         # [mW/m^2] surface heat flow
 
     GPopt = defaultGTInit([q0])
-    
+
 
     answero = userComputeGeotherm(GPopt, answer.D)
 
