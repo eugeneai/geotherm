@@ -34,6 +34,7 @@ struct Geotherm
     z :: Vector{Float64}
     label :: String
     q0:: Float64
+    az:: Float64
 end
 
 struct GTResult
@@ -102,15 +103,19 @@ function userComputeGeotherm(initParameters :: GTInit,
         H[1] = A0
 
         # compute geotherm from emperical rather than long form
-        # T[:,i],z,k,A,q,alpha_[:,i] = empgtherms(q0[i],zmax,dz,D,zbot,H)
-        _T,z,k,A,q,_alpha_ = empgtherms(ini.q0[i],
+        # T[:,i],z,k,A,q,alpha_[:,i],az = empgtherms(q0[i],zmax,dz,D,zbot,H)
+        _T,z,k,A,q,_alpha_,az = empgtherms(ini.q0[i],
                                         ini.zmax,
                                         ini.dz,
                                         ini.D,
                                         ini.zbot,
                                         H)
-        label = format("{}", ini.q0[i])
-        push!(GTs, Geotherm(_T, z, label,ini.q0[i]))
+        if az>0.0
+            label = format("{} ({})", ini.q0[i], az)
+        else
+            label = format("{}", ini.q0[i])
+        end
+        push!(GTs, Geotherm(_T, z, label,ini.q0[i],az))
 
         if T == undef
             T = _T
@@ -286,10 +291,11 @@ function userPlot(answer::GTResult)
 
     q0 = convert(Float64, minx)         # [mW/m^2] surface heat flow
 
-    GPopt = defaultGTInit([q0])
+    ai = answer.ini
 
+    gpOpt = GTInit([q0], ai.D, ai.zbot, ai.zmax, ai.dz, ai.P, ai.H, ai.iref, false)
 
-    answero = userComputeGeotherm(GPopt, answer.D)
+    answero = userComputeGeotherm(gpOpt, answer.D)
 
     plt = plot()
 

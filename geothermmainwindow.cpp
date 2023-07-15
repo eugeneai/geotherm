@@ -48,6 +48,10 @@ void GeothermMainWindow::on_pushButton_2_clicked()
             csvModel->setDataFrame(ret);
             ui->csvView->setModel(csvModel);
         }
+    } else {
+        QMessageBox::critical(this, "Cannot load Julia module",
+            "Cannot load Julia module, probably a syntax error, check the stdout.");
+
     }
 }
 

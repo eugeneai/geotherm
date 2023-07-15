@@ -18,7 +18,6 @@ function empgtherms(q0, maxsz, dz, D, zbot, H)
 #    zbot  - Depth to layer base        km
 #    H     - Layer heat production      muW/m^3
 #    zmoho - Depth to the moho          km
-#    alpha - ....
 #
 # Outputs:
 #    T     - Temperature as a function of depth         C
@@ -26,6 +25,8 @@ function empgtherms(q0, maxsz, dz, D, zbot, H)
 #    k     - Thermal conductivity                       W/m/K
 #    A     - Heat production                            W/m^3
 #    q     - Heat flow                                  W/m^2
+#    alpha - ....
+#    az    - Adiabat depth, if reached, else -1.0
 #
 # Last Modified: 15 March 2008 by D. Hasterok
 
@@ -74,6 +75,7 @@ function empgtherms(q0, maxsz, dz, D, zbot, H)
     T[1] = T0
     adiabat = 0
     ik = 1
+    az = (-1.0)
     for i = 1:lenz - 1
         global iend
         iend = i
@@ -94,13 +96,16 @@ function empgtherms(q0, maxsz, dz, D, zbot, H)
         alpha[i+1] = empexpansivity(ik,zmoho,z[i+1],T[i+1]);
 
         if T[i+1] > Ta[i+1]
+            if az<0.0
+                az = z[i]
+            end
             adiabat = 1;
             break
         end
     end
     if adiabat == 0
         T = T .- 273
-        return T,z,lambda,A,q,alpha
+        return T,z,lambda,A,q,alpha,az
     end
 
     # If the geotherm reaches the adiabat compute adiabat
@@ -128,7 +133,7 @@ function empgtherms(q0, maxsz, dz, D, zbot, H)
 
     T = T .- 273;
 
-    return T,z,lambda,A,q,alpha
+    return T,z,lambda,A,q,alpha,az
 end
 
 function tccomp(ik,zmoho,z,dz,tau,q,lambda0,A)
