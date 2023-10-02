@@ -201,10 +201,10 @@ function optimize1(f,
 end
 
 function run()
-    q0 = 35:0.2:39         # [mW/m^2] surface heat flow
+    q0 = 33:0.2:40         # [mW/m^2] surface heat flow
     # q0 = 20:10:100         # [mW/m^2] surface heat flow
     GP = defaultGTInit(q0)
-    dataf = userLoadCSV("data/PTdata.csv")
+    dataf = userLoadCSV("./data/PT Ybileynaya_Gtherm.csv")
     answer = userComputeGeotherm(GP, dataf)
     userPlot(answer)
 end
@@ -311,6 +311,7 @@ function userPlot(answer::GTResult)
     #           legend=:bottomleft)
     # end
     foreach(plt_gt, answero.GT)
+    print(answero.GT)
     savefig(plt, appRoot * "/geotherm-opt.svg")
     print("Saved " * appRoot * "/geotherm-opt.svg")
 end

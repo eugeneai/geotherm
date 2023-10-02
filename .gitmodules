@@ -1,3 +1,6 @@
 [submodule "mdb"]
 	path = mdb
 	url = https://github.com/mdbootstrap/mdb-react-ui-kit.git
+[submodule "site"]
+	path = site
+	url = git@github.com:eugeneai/volt-bootstrap-5-gtherm.git
