@@ -1,6 +1,19 @@
 import Mongoc
 import SHA
 import UUIDs
+using Genie, Genie.Requests
+# import GenieSession
+import Genie.Cookies as GC
+# import GenieSession as GS
+using Genie.Renderer.Json
+import Genie.Requests as GR
+import Genie.Responses as GE
+using SMTPClient
+using Base64
+using Dates
+using Markdown
+
+MB=Mongoc.BSON
 
 mutable struct Config
     salt::String
@@ -8,7 +21,24 @@ mutable struct Config
     client::Any
     dbName::String
     db::Any
+    noreply::String
+    server::String
 end
+
+config::Config = Config("salt9078563412",
+                        UUIDs.UUID("7a2b81c9-f1fa-41de-880d-9635f4741511"),
+                        0,
+                        "geotherm",
+                        0,
+                        "UVh5Qj1lPiUyYkpyNmhUJQo=" |> base64decode |> String |> strip,
+                        "https://gtherm.ru"
+                        )
+Genie.config.run_as_server = true
+Genie.config.cors_headers["Access-Control-Allow-Origin"] = "*"
+# This has to be this way - you should not include ".../*"
+Genie.config.cors_headers["Access-Control-Allow-Headers"] = "X-Requested-With,content-type"
+Genie.config.cors_headers["Access-Control-Allow-Methods"] = "GET,POST,PUT,DELETE,OPTIONS"
+Genie.config.cors_allowed_origins = ["*"]
 
 @enum ResultLevel begin
     OK = 0
@@ -24,11 +54,6 @@ struct Result
     description::String
 end
 
-config::Config = Config("salt9078563412",
-                        UUIDs.UUID("7a2b81c9-f1fa-41de-880d-9635f4741511"),
-                        0,
-                        "geotherm",
-                        0)
 
 function connectDb()
     mongoClient = Mongoc.Client("mongodb://localhost:27017")
@@ -41,6 +66,74 @@ function connectDb()
     config.client = mongoClient
     return mongoClient
 end
+
+
+function getData(okf::Function, uuid::UUIDs.UUID, collection::String)::Result
+    obj = Mongoc.BSON()
+    obj["uuid"] = string(uuid)
+    db = config.client[config.dbName]
+    coll = db[collection]
+    obj = Mongoc.find_one(coll, obj)
+    if isnothing(obj)
+        answer = MB()
+        answer["uuid"]=uuid
+        return Result(answer, ERROR, "not found")
+    else
+        okf(obj)
+        return Result(obj, OK, "found")
+    end
+end
+
+function getUserData(uuid::UUIDs.UUID)::Result
+    getData(uuid, "users") do v
+        v["password"]="******"
+    end
+end
+
+function sendEmailApproval(user::MB)
+    opt = SendOptions(
+        isSSL = true,
+        username = "noreply@irnok.net",
+        passwd = config.noreply)
+    #Provide the message body as RFC5322 within an IO
+
+    confurl=config.server*API*"user/$(user["uuid"])/emailConfirm"
+
+    n = Dates.now()
+    ns = Dates.format(n, "e, d u Y H:M:S +0800\r\n", locale="english")
+    ns = "Date: "*ns
+
+    msg = """Dear $(user["name"])!
+
+    Thank You for registering at our service of geotherm modeling!
+
+    To confirm Your email, please click for the following link:
+
+    **[Confirm email]($(confurl))**
+
+    If You think this email was send by accident, ignore it.
+
+    Your sincerely,
+    Geotherm Developers.
+    """
+
+    md = Markdown.parse(msg)
+    body = SMTPClient.get_mime_msg(md)
+
+    body = IOBuffer(
+        ns *
+            "From: No Reply <noreply@irnok.net>\r\n" *
+            "To: $(user["email"])\r\n" *
+            "Subject: Confirm Your email in Geotherm application\r\n" *
+            body
+    )
+    url = "smtps://smtp.gmail.com:465"
+    rcpt = ["<eugeneai@irnok.net>"]
+    from = "<eugeneai@irnok.net>"
+    resp = send(url, rcpt, from, body, opt)
+    println("Email RC:", resp)
+end
+
 
 function addUser(alias::String, name::String, org::String,
                  password::String, email::String) :: Result
@@ -60,6 +153,7 @@ function addUser(alias::String, name::String, org::String,
         uuid = UUIDs.uuid5(config.systemUUID, "geotherm-user")
         user["uuid"] = string(uuid)
         push!(coll, user)
+        sendEmailApproval(user)
         return Result(uuid,OK,"user added")
     else
         println(prev["uuid"])
@@ -69,11 +163,56 @@ function addUser(alias::String, name::String, org::String,
     end
 end
 
-
 function test()
-    mongoClient = connectDb()
     println("CFG:", config.client, "\n")
-    println(addUser("eugeneai","Evgeny Cherkashin", "ISDCT SB RAS", "passW0rd", "eugeneai@irnok.net"))
+    u = addUser("eugeneai","Evgeny Cherkashin", "ISDCT SB RAS", "passW0rd", "eugeneai@irnok.net")
+    println(u)
+    println(getUserData(u.value))
 end
 
-test()
+
+function rj(answer::Result)
+    l = answer.level
+    v = answer.value
+    m = answer.description
+    # d = Dict{String, Any}([("value":v), ("description":d)])
+    d = Dict{String, Any}([("description", m)])
+    d["value"] = v
+    if l == OK
+        d["level"] = "OK"
+    elseif l == ERROR
+        d["level"] = "ERROR"
+    elseif l == INFO
+        d["level"] = "INFO"
+    elseif l == FATAL
+        d["level"] = "FATAL"
+    elseif l == DEBUG
+        d["level"] = "DEBUG"
+    end
+    json(d)
+end
+
+API="/api/1.0/"
+
+route(API*"user/:uuid/data") do
+    uuid=UUIDs.UUID(payload(:uuid))
+    req=GR.request()
+    res=GE.getresponse()
+    cookie = GC.get(req,"test")
+    println("Kookie:", cookie)
+    GC.set!(res,:userSession,string(uuid))
+    # println(req,res)
+    # sess=GS.start(req)
+    rc = getUserData(uuid)
+    rj(rc)
+end
+
+function main()
+    mongoClient = connectDb()
+    # test()
+    print(routes())
+    up(8000,
+       async=false)
+end
+
+main()
