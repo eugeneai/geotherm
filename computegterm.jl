@@ -311,7 +311,7 @@ function userPlot(answer::GTResult)
     #           legend=:bottomleft)
     # end
     foreach(plt_gt, answero.GT)
-    print(answero.GT)
+    # print(answero.GT)
     savefig(plt, appRoot * "/geotherm-opt.svg")
     print("Saved " * appRoot * "/geotherm-opt.svg")
 end
