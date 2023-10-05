@@ -33,6 +33,7 @@ config::Config = Config("salt9078563412",
                         "UVh5Qj1lPiUyYkpyNmhUJQo=" |> base64decode |> String |> strip,
                         "https://gtherm.ru"
                         )
+
 Genie.config.run_as_server = true
 Genie.config.cors_headers["Access-Control-Allow-Origin"] = "*"
 # This has to be this way - you should not include ".../*"
@@ -40,12 +41,13 @@ Genie.config.cors_headers["Access-Control-Allow-Headers"] = "X-Requested-With,co
 Genie.config.cors_headers["Access-Control-Allow-Methods"] = "GET,POST,PUT,DELETE,OPTIONS"
 Genie.config.cors_allowed_origins = ["*"]
 
-@enum ResultLevel begin
+@enum ResultLevel::Int8 begin
     OK = 0
-    INFO = 1
-    ERROR = 2
-    FATAL = 3
-    DEBUG = 4
+    CACHED = 1
+    INFO = 2
+    DEBUG = 3
+    ERROR = 10
+    FATAL = 20
 end
 
 struct Result
@@ -54,6 +56,24 @@ struct Result
     description::String
 end
 
+
+sessionCache = IdDict{String, Result}()
+
+function cache!(f::Function, uuid::UUIDs.UUID)::Result
+    suuid = uuid |> string
+    obj = get(sessionCache, suuid, nothing)
+    if isnothing(obj)
+        result = f()
+        if result.level < ERROR
+            sessionCache[suuid] = result
+        end
+        return result
+    else
+        println("Getting from the casche")
+        nobj = Result(obj.value, CACHED, "cached")
+        return nobj
+    end
+end
 
 function connectDb()
     mongoClient = Mongoc.Client("mongodb://localhost:27017")
@@ -85,8 +105,11 @@ function getData(okf::Function, uuid::UUIDs.UUID, collection::String)::Result
 end
 
 function getUserData(uuid::UUIDs.UUID)::Result
-    getData(uuid, "users") do v
-        v["password"]="******"
+    cache!(uuid) do
+        println("Getting from Mongo")
+        getData(uuid, "users") do v
+            v["password"]="******"
+        end
     end
 end
 
@@ -128,8 +151,8 @@ function sendEmailApproval(user::MB)
             body
     )
     url = "smtps://smtp.gmail.com:465"
-    rcpt = ["<eugeneai@irnok.net>"]
-    from = "<eugeneai@irnok.net>"
+    rcpt = ["<noreply@irnok.net>"]
+    from = "<$(user["email"])>"
     resp = send(url, rcpt, from, body, opt)
     println("Email RC:", resp)
 end
@@ -151,10 +174,13 @@ function addUser(alias::String, name::String, org::String,
         user["email"] = email
         user["emailChecked"] = false
         uuid = UUIDs.uuid5(config.systemUUID, "geotherm-user")
-        user["uuid"] = string(uuid)
+        suuid = string(uuid)
+        user["uuid"] = suuid
         push!(coll, user)
         sendEmailApproval(user)
-        return Result(uuid,OK,"user added")
+        rc = Result(uuid, OK, "user added")
+        sessionCache[suuid] = rc
+        return rc
     else
         println(prev["uuid"])
         return Result(
@@ -178,29 +204,35 @@ function rj(answer::Result)
     # d = Dict{String, Any}([("value":v), ("description":d)])
     d = Dict{String, Any}([("description", m)])
     d["value"] = v
-    if l == OK
-        d["level"] = "OK"
-    elseif l == ERROR
-        d["level"] = "ERROR"
-    elseif l == INFO
-        d["level"] = "INFO"
-    elseif l == FATAL
-        d["level"] = "FATAL"
-    elseif l == DEBUG
-        d["level"] = "DEBUG"
-    end
+    d["level"] = UInt8(l)
+    # if l == OK
+    #     d["level"] = "OK"
+    # elseif l == ERROR
+    #     d["level"] = "ERROR"
+    # elseif l == INFO
+    #     d["level"] = "INFO"
+    # elseif l == FATAL
+    #     d["level"] = "FATAL"
+    # elseif l == DEBUG
+    #     d["level"] = "DEBUG"
+    # elseif l == CACHED
+    #     d["level"] = "OK"
+    # end
+    println(json(d), l)
     json(d)
 end
 
 API="/api/1.0/"
 
-route(API*"user/:uuid/data") do
+route(API*"user/:uuid/data", method=POST) do
     uuid=UUIDs.UUID(payload(:uuid))
-    req=GR.request()
-    res=GE.getresponse()
-    cookie = GC.get(req,"test")
-    println("Kookie:", cookie)
-    GC.set!(res,:userSession,string(uuid))
+    # req=GR.request()
+    # res=GE.getresponse()
+    # cookie = GC.get(req,"test")
+    # println("Req:", req)
+    # println("Cookie:", cookie)
+    # GC.set!(res,:userSession,string(uuid))
+    # println("Resp:", res)
     # println(req,res)
     # sess=GS.start(req)
     rc = getUserData(uuid)
@@ -215,4 +247,6 @@ function main()
        async=false)
 end
 
-main()
+if PROGRAM_FILE != ""
+    main()
+end
