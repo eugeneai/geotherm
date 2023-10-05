@@ -157,6 +157,9 @@ function sendEmailApproval(user::MB)
     println("Email RC:", resp)
 end
 
+function encryptPassword(password::String)::String
+    SHA.sha256(config.salt * password) |> bytes2hex
+end
 
 function addUser(alias::String, name::String, org::String,
                  password::String, email::String) :: Result
@@ -170,7 +173,7 @@ function addUser(alias::String, name::String, org::String,
     if isnothing(prev)
         user["name"] = name
         user["org"] = org
-        user["password"] = SHA.sha256(config.salt * password) |> bytes2hex
+        user["password"] = password |> encryptPassword
         user["email"] = email
         user["emailChecked"] = false
         uuid = UUIDs.uuid5(config.systemUUID, "geotherm-user")
@@ -178,14 +181,14 @@ function addUser(alias::String, name::String, org::String,
         user["uuid"] = suuid
         push!(coll, user)
         sendEmailApproval(user)
-        rc = Result(uuid, OK, "user added")
+        rc = Result(user, OK, "user added")
         sessionCache[suuid] = rc
         return rc
     else
         println(prev["uuid"])
         return Result(
             prev["uuid"] |> UUIDs.UUID ,
-            ERROR, "user exists")
+            ERROR, "User with this account name exists. Choose another one.")
     end
 end
 
@@ -236,7 +239,7 @@ function rj(answer::Result)
         elseif l == CACHED
             "CACHED"
         end
-    # println(json(d), l)
+    println("INFO:RETURNING:", json(d), l)
     json(d)
 end
 
@@ -253,6 +256,46 @@ route(API*"user/:uuid/logout", method=POST) do
     rc = logoutUser(uuid)
     rj(rc)
 end
+
+route(API*"user/register", method=POST) do
+    # rc = logoutUser(uuid)
+    # req=GR.request()
+    # println(postpayload())
+    user=postpayload(:JSON_PAYLOAD)
+    alias=get(user, "alias", nothing)
+    name=get(user, "name", nothing)
+    org=get(user, "org", "")
+    password=get(user, "password", nothing)
+    email=get(user, "email", nothing)
+
+    # rc=Result(alias, ERROR, "test Error")
+    rc = addUser(alias, name, org, password, email)
+    rj(rc)
+end
+
+route(API*"user/authenticate", method=POST) do
+    creds = postpayload(:JSON_PAYLOAD)
+    alias=get(creds, "alias", "")
+    password=get(creds, "password", "") |> encryptPassword
+    if isnothing(alias)
+        return Result("", ERROR, "No user name supplied.")
+    end
+    obj = Mongoc.BSON()
+    obj["alias"] = alias
+    db = config.client[config.dbName]
+    coll = db["users"]
+    # println("OBJ:", obj)
+    obj = Mongoc.find_one(coll, obj)
+    if isnothing(obj)
+        answer = MB()
+        answer["alias"]=alias
+        rc = Result(answer, ERROR, "User not found!")
+    else
+        rc = Result(string(obj["uuid"]), OK, "Login into the account is successful!")
+    end
+    rj(rc)
+end
+
 
 function main()
     mongoClient = connectDb()
