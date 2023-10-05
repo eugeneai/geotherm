@@ -189,6 +189,23 @@ function addUser(alias::String, name::String, org::String,
     end
 end
 
+function logoutUser(uuid::UUIDs.UUID)::Result
+    suuid = uuid |> string;
+    # First, remove objects connected to the user
+    if haskey(sessionCache, suuid)
+        for (k,v) in pairs(sessionCache)
+            v = v.value
+            if haskey(v, "user") && v.value["user"] == suuid
+                println(v)  # TODO remove it
+            end
+        end
+        delete!(sessionCache, suuid)
+        Result(suuid, OK, "user is logged out")
+    else
+        Result(suuid, ERROR, "user was not logged out")
+    end
+end
+
 function test()
     println("CFG:", config.client, "\n")
     u = addUser("eugeneai","Evgeny Cherkashin", "ISDCT SB RAS", "passW0rd", "eugeneai@irnok.net")
@@ -205,20 +222,21 @@ function rj(answer::Result)
     d = Dict{String, Any}([("description", m)])
     d["value"] = v
     d["level"] = UInt8(l)
-    # if l == OK
-    #     d["level"] = "OK"
-    # elseif l == ERROR
-    #     d["level"] = "ERROR"
-    # elseif l == INFO
-    #     d["level"] = "INFO"
-    # elseif l == FATAL
-    #     d["level"] = "FATAL"
-    # elseif l == DEBUG
-    #     d["level"] = "DEBUG"
-    # elseif l == CACHED
-    #     d["level"] = "OK"
-    # end
-    println(json(d), l)
+    d["rcdescr"] =
+        if l == OK
+            "OK"
+        elseif l == ERROR
+            "ERROR"
+        elseif l == INFO
+            "INFO"
+        elseif l == FATAL
+            "FATAL"
+        elseif l == DEBUG
+            "DEBUG"
+        elseif l == CACHED
+            "CACHED"
+        end
+    # println(json(d), l)
     json(d)
 end
 
@@ -226,16 +244,13 @@ API="/api/1.0/"
 
 route(API*"user/:uuid/data", method=POST) do
     uuid=UUIDs.UUID(payload(:uuid))
-    # req=GR.request()
-    # res=GE.getresponse()
-    # cookie = GC.get(req,"test")
-    # println("Req:", req)
-    # println("Cookie:", cookie)
-    # GC.set!(res,:userSession,string(uuid))
-    # println("Resp:", res)
-    # println(req,res)
-    # sess=GS.start(req)
     rc = getUserData(uuid)
+    rj(rc)
+end
+
+route(API*"user/:uuid/logout", method=POST) do
+    uuid=UUIDs.UUID(payload(:uuid))
+    rc = logoutUser(uuid)
     rj(rc)
 end
 
