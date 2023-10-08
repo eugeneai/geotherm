@@ -1,5 +1,4 @@
-# push!(LOAD_PATH,pwd())
-using Revise
+# using Revise
 using CSV
 using DataFrames
 using Plots
@@ -9,8 +8,7 @@ using LaTeXStrings
 using Interpolations
 using Optim
 
-includet("EmpgTherm.jl")
-# using .EmpgTherm
+include("EmpgTherm.jl")
 
 appRoot="/var/tmp"
 
@@ -51,15 +49,17 @@ function defaultGTInit(q0 = 34:1:40,
            0.1, 0.74, [0,0.4,0.4,0.02], 3, opt)
 end
 
-function depths(p)
-    d=p .* 30.4 .+ 6.3
-    return d
+function depth(p) # GPa -> km
+    p .* 30.4 .+ 6.3
 end
 
-function userLoadCSV(fileName :: String) :: DataFrame
-    pt = CSV.read(fileName, DataFrame, delim=';', decimal=',')
+function pressure(d) # km -> GPa
+    (d .- 6.3) ./ 30.4
+end
+
+function canonifyDF(pt::DataFrame)::DataFrame
     pt_n = names(pt)
-    print(pt_n)
+    println(pt_n)
     TC = pt.t
     TK = TC .+ 273
     if !("d" in pt_n)
@@ -70,12 +70,17 @@ function userLoadCSV(fileName :: String) :: DataFrame
         elseif ("pk" in pt_n)
             PGPa = pt.pk / 10.0
         end
-        Dkm=depths(PGPa)
+        Dkm=depth(PGPa)
     else
         Dkm = pt.d
+        PGPa = pt.d |> pressure
     end
-    dataf = DataFrame(D_km=Dkm, P_mPa=Dkm, T_C=TC, T_K=TK)
-    return dataf
+    DataFrame(D_km=Dkm, P_GPa=PGPa, T_C=TC, T_K=TK)
+end
+
+function userLoadCSV(fileName :: String) :: DataFrame
+    pt = CSV.read(fileName, DataFrame, delim=';', decimal=',')
+    pt |> canonifyDF
 end
 
 function userComputeGeotherm(initParameters :: GTInit,
@@ -316,8 +321,8 @@ function userPlot(answer::GTResult)
     print("Saved " * appRoot * "/geotherm-opt.svg")
 end
 
-function main()
-run()
-end
+# function main()
+# run()
+# end
 
-main()
+# main()

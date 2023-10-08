@@ -6,12 +6,20 @@ using Genie, Genie.Requests
 import Genie.Cookies as GC
 # import GenieSession as GS
 using Genie.Renderer.Json
-import Genie.Requests as GR
+import Genie.Requests as GRQ
 import Genie.Responses as GE
 using SMTPClient
 using Base64
 using Dates
 using Markdown
+import XLSX
+import CSV
+import Base.Filesystem as FS
+using DataFrames
+import JSON as JS
+
+include("computegterm.jl")
+include("fileLoaders.jl")
 
 MB=Mongoc.BSON
 
@@ -209,6 +217,56 @@ function logoutUser(uuid::UUIDs.UUID)::Result
     end
 end
 
+
+function storeDataFrame(df, userData, projectName)::Union{UUIDs.UUID,Nothing}
+    userSuuid = userData["uuid"]
+    db = config.client[config.dbName]
+
+    obj = Mongoc.BSON()
+    obj["user"] = userSuuid
+    obj["name"] = projectName
+    coll = db["projects"]
+    obj = Mongoc.find_one(coll, obj)
+
+    if isnothing(obj)
+        uuid = UUIDs.uuid5(config.systemUUID, "geotherm-project")
+        suuid = uuid |> string
+
+        r=MB()
+        r["uuid"]=suuid
+        r["name"]=projectName
+        r["user"]=userSuuid
+        r["data"]=MB(JS.json(df))
+
+        client = config.client
+        session = client
+        db = session[config.dbName]
+        coll = db["projects"]
+        # println(r)
+        push!(coll, r)
+        uuid
+    else
+        nothing
+    end
+end
+
+function storeDataFrames(dfs, userData, projectName)::Vector{UUIDs.UUID}
+    uuids = Vector{UUIDs.UUID}()
+    for i in eachindex(dfs)
+        df = dfs[i]
+        if length(dfs) > 1
+            pn = projectName * "-" * string(i)
+        else
+            pn = projectName
+        end
+        uuid = storeDataFrame(df, userData, pn)
+        if ! isnothing(uuid)
+            push!(uuids, uuid)
+        end
+    end
+    uuids
+end
+
 function test()
     println("CFG:", config.client, "\n")
     u = addUser("eugeneai","Evgeny Cherkashin", "ISDCT SB RAS", "passW0rd", "eugeneai@irnok.net")
@@ -251,6 +309,46 @@ route(API*"user/:uuid/data", method=POST) do
     rj(rc)
 end
 
+route(API*"user/:uuid/project/upload", method=POST) do
+    uuid=UUIDs.UUID(payload(:uuid))
+    userData = getUserData(uuid)
+    if userData.level >= ERROR
+        return rj(userData)
+    end
+    userData = userData.value
+    if infilespayload(:file)
+        # println("There is a file")
+        httpFile = filespayload(:file)
+        name = httpFile |> filename
+        mime = httpFile.mime
+        data = httpFile.data
+        if mime == "text/csv"
+            dfs = loadCsv(httpFile)
+        elseif mime == "text/tsv"
+            dfs = loadTsv(httpFile)
+        elseif mime == "application/vnd.openxmlformats-officedocument.spreadsheetml.sheet"
+            dfs = loadXlsx(httpFile)
+        else
+            dfs = nothing
+        end
+
+        if isnothing(dfs)
+            rc = Result(mime, ERROR, "File type " * mime * " cannot be loaded!")
+        else
+            projectName,_ext = FS.splitext(name)
+            uuids = storeDataFrames(dfs, userData, projectName)
+            if length(uuids) > 0
+                rc = Result(uuids, OK, "File data has successfully uploaded!")
+            else
+                rc = Result(uuids, INFO, "No new data added! It seems You're already done that.")
+            end
+        end
+    else
+        rc = Result("", ERROR, "Upload had incorrect format! Contact developers!")
+    end
+    rj(rc)
+end
+
 route(API*"user/:uuid/logout", method=POST) do
     uuid=UUIDs.UUID(payload(:uuid))
     rc = logoutUser(uuid)
@@ -259,7 +357,7 @@ end
 
 route(API*"user/register", method=POST) do
     # rc = logoutUser(uuid)
-    # req=GR.request()
+    # req=GRQ.request()
     # println(postpayload())
     user=postpayload(:JSON_PAYLOAD)
     alias=get(user, "alias", nothing)
