@@ -510,6 +510,13 @@ route(API*"project/:uuid/dataframe", method=POST) do
     rj(rc)
 end
 
+route(API*"/test", method=POST) do
+    js = postpayload(:JSON_PAYLOAD)
+    println(js)
+    uuid=js["uuid"]
+    rc=Result(uuid, OK, "Server functioning")
+    rj(rc)
+end
 
 function main()
     mongoClient = connectDb()
