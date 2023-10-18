@@ -25,6 +25,7 @@ include("fileLoaders.jl")
 MB=Mongoc.BSON
 
 mutable struct Config
+    debug::Bool
     salt::String
     systemUUID::Any
     client::Any
@@ -33,17 +34,20 @@ mutable struct Config
     noreply::String
     server::String
     defaultModelUUID::Any
+    demoDataUUID::Any
 end
 
-config::Config = Config("salt9078563412",
-                        UUID("7a2b81c9-f1fa-41de-880d-9635f4741511"),
-                        0,
-                        "geotherm",
-                        0,
-                        "UVh5Qj1lPiUyYkpyNmhUJQo=" |> base64decode |> String |> strip,
-                        "https://gtherm.ru",
-                        UUID("cdda3a47-e5bb-570a-950d-f9c191e5dfbb")
-                        )
+config::Config = Config( false
+                         , "salt9078563412"
+                         , UUID("7a2b81c9-f1fa-41de-880d-9635f4741511")
+                         , 0
+                         , "geotherm"
+                         , 0
+                         , "UVh5Qj1lPiUyYkpyNmhUJQo=" |> base64decode |> String |> strip
+                         , "https://gtherm.ru"
+                         , UUID("cdda3a47-e5bb-570a-950d-f9c191e5dfbb") # Default model
+                         , UUID("9413fd3d-9ad9-4e33-9869-cc4cfd884ada") # Example Data
+                         )
 
 Genie.config.run_as_server = true
 Genie.config.cors_headers["Access-Control-Allow-Origin"] = "*"
@@ -79,7 +83,7 @@ function cache!(f::Function, uuid::UUID)::Result
         end
         return result
     else
-        println("Getting from the casche")
+        println("Getting from the cache")
         nobj = Result(obj.value, CACHED, "cached")
         return nobj
     end
@@ -269,7 +273,7 @@ function logoutUser(uuid::UUID)::Result
     if haskey(sessionCache, suuid)
         for (k,v) in pairs(sessionCache)
             v = v.value
-            if haskey(v, "user") && v.value["user"] == suuid
+            if haskey(v, "user") && v["user"] == suuid
                 # println(v)  # TODO remove it
                 delete!(sessionCache, k)
             end
@@ -361,7 +365,9 @@ function rj(answer::Result)
         elseif l == CACHED
             "CACHED"
         end
-    println("INFO:RETURNING:", json(d), l)
+    if config.debug
+        println("INFO:RETURNING:", json(d), l)
+    end
     json(d)
 end
 
@@ -437,6 +443,7 @@ route(API*"user/register", method=POST) do
 end
 
 route(API*"user/authenticate", method=POST) do
+    println(postpayload())
     creds = postpayload(:JSON_PAYLOAD)
     alias=get(creds, "alias", "")
     password=get(creds, "password", "") |> encryptPassword
@@ -472,6 +479,7 @@ route(API*"user/:uuid/projects", method=POST) do
     usersuuid = uuid |> string
 
     q = MB("user" => usersuuid)
+    qdemo = MB("uuid" => string(config.demoDataUUID))
     lim = MB("user" => 1, "uuid" => 1, "name" => 1, "model" => 1, "data" => 0)
 
     answer :: Vector{MB}=[];
@@ -481,25 +489,53 @@ route(API*"user/:uuid/projects", method=POST) do
     db = session[config.dbName]
     coll = db["projects"]
 
-    for a in Mongoc.find(coll, q) # , options=lim)
-        if ! haskey(a, "model")
-            a["model"] = config.defaultModelUUID |> string
-        end
+    demoFound = false
+
+    function canonify(a::Mongoc.BSON)::Mongoc.BSON
         row = MB()
+        if ! haskey(a, "model")
+            row["model"] = config.defaultModelUUID |> string
+        else
+            row["model"] = a["model"]
+        end
+
         row["name"] = a["name"]
         row["model"] = a["model"]
         row["uuid"] = a["uuid"]
         row["user"] = a["user"]
+
         print(row)
-        md = getModelData(UUID(a["model"]))
+        row
+    end
+
+    for a in Mongoc.find(coll, q) # must be done once
+        row = canonify(a)
+        if config.demoDataUUID == UUID(a["uuid"])
+            demoFound = true
+        end
+        md = getModelData(UUID(row["model"]))
         if md.level >= ERROR
             return rj(md)
         end
         v = md.value
-
         row["modelData"] = v
         push!(answer, row)
     end
+
+    if !demoFound
+        for a in Mongoc.find(coll, qdemo) # must be done once
+            row = canonify(a)
+            md = getModelData(UUID(row["model"]))
+            if md.level >= ERROR
+                return rj(md)
+            end
+            v = md.value
+            row["modelData"] = v
+            row["name"] = "(DEMO)"*row["name"]
+            push!(answer, row)
+        end
+    end
+
     rc = Result(answer, OK, "Project data, possibly empty.")
     rj(rc)
 end
