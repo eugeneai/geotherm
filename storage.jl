@@ -554,12 +554,38 @@ route(API*"/test", method=POST) do
     rj(rc)
 end
 
+function ep(s::String)::Any
+    s |> Meta.parse |> eval
+end
+
+route(API*"/project/:uuid/calculate", method=POST) do
+    uuid=UUIDs.UUID(payload(:uuid))
+
+    ini = GTInit(m["q"] |> ep
+                 , m["D"] |> ep
+                 , m["Zbot"] |> ep
+                 , m["Zmax"] |> ep
+                 , m["Dz"] |> ep
+                 , m["P"] |> ep
+                 , m["H"] |> ep
+                 , m["iref"] |> ep
+                 , m["optimize"] |> ep
+                 )
+    gtRes = userComputeGeotherm(ini, df)
+
+    rc=Result("computed", OK, "Successfully computed!")
+    rj(rc)
+end
+
 function main()
     mongoClient = connectDb()
     # test()
-    print(routes())
-    up(8000,
-       async=false)
+    println("Routes -----")
+    for r in routes()
+        println(r)
+    end
+    up(8000
+       , async=false)
 end
 
 if PROGRAM_FILE != ""
