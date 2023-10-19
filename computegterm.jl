@@ -2,6 +2,7 @@
 using CSV
 using DataFrames
 using Plots
+import Plots
 using Debugger
 using Formatting
 using LaTeXStrings
@@ -104,6 +105,12 @@ function userComputeGeotherm(initParameters :: GTInit,
         # global T, alpha_, de, labels, plt
         # compute surface heat production
         A0 = (1 - ini.P) * ini.q0[i] / ini.D
+        # println("P: ", ini.P)
+        # println("D: ", ini.D)
+        # println("i: ", i)
+        # println("q0: ", ini.q0)
+        # println("q0[i]: ", ini.q0[i])
+        # println("A0: ", A0)
         H = copy(ini.H)
         H[1] = A0
 
@@ -211,15 +218,19 @@ function run()
     GP = defaultGTInit(q0)
     dataf = userLoadCSV("./data/PT Ybileynaya_Gtherm.csv")
     answer = userComputeGeotherm(GP, dataf)
-    userPlot(answer)
+    userPlot(answer, appRoot,
+             "geotherm.svg",
+             "geotherm-chisquare.svg",
+             "geotherm-opt.svg")
 end
 
-function userPlot(answer::GTResult)
+function userPlot(answer::GTResult,
+                  appRoot::String,
+                  geothermfig::Any,
+                  geothermChiSquarefig::Any,
+                  geothermOptfig::Any
+                  )::Union{GTResult,Nothing}
     plt = plot()
-    # push!(labels, label)
-    # plot!(plt, _T, z, label = label,
-    #       linewith=3, yflip=true,
-    #       legend=:bottomleft)
 
     plot!(plt, answer.D.T_C, answer.D.D_km, seriestype=:scatter, label="Measurements")
     xlabel!(L"Temperature ${}^\circ$C");
@@ -232,93 +243,90 @@ function userPlot(answer::GTResult)
               legend=:bottomleft)
     end
     foreach(plt_gt, answer.GT)
-    #axis ij;
-    #axis square;
-    #set(gca,'Box','on');
 
-    # if length(q0) > 1
-    #     subplot(122); hold on;
-    #     xlabel('Surface Heat Flow [mW/m^2]');
-    #     ylabel('Elevation [km]');
-    #     plot(q0,de-de(iref),'kx');
-    #     axis square;
-    #     set(gca,'Box','on');
-    # else
-    #     fprintf(' Depth [km]   Temperature [K]\n');
-    #     for i = 1:length(z)
-    #         fprintf('%7.2f       %7.2f\n',z(i),T(i));
-    #     end
-    # end
-    savefig(plt, appRoot * "/geotherm.svg")
-
-    plt = plot()
-    (xs, ifu) = chisquare(answer)
-    nxsb = minimum(xs)
-    nxse = maximum(xs)
-    nxs = nxsb:((nxse-nxsb)/100):nxse
-    plot!(plt, nxs, ifu(nxs), linewith=3, label=L"Cubic BSpline of $\chi^2$",)
-    plot!(plt, xs, ifu(xs), seriestype=:scatter,
-          label=L"$\chi^2$", markercolor = :green)
-    sp = convert(Float64, nxsb + (nxse-nxsb)/2)
-    function ifuo(v::Vector{Float64})
-        x = v[1]
-        print("Calc: ", x)
-        ifu(x)
+    if typeof(geothermfig) == String
+        savefig(plt, appRoot * "/" * geothermfig)
+    else
+        Plots.svg(plt, geothermfig)
     end
 
-    function ifu1(x::Float64)::Float64
-        # print(format("Calc: {}\n", x))
-        ifu(x)
+    if answer.ini.opt
+        plt = plot()
+        (xs, ifu) = chisquare(answer)
+        nxsb = minimum(xs)
+        nxse = maximum(xs)
+        nxs = nxsb:((nxse-nxsb)/100):nxse
+        plot!(plt, nxs, ifu(nxs), linewith=3, label=L"Cubic BSpline of $\chi^2$",)
+        plot!(plt, xs, ifu(xs), seriestype=:scatter,
+              label=L"$\chi^2$", markercolor = :green)
+        sp = convert(Float64, nxsb + (nxse-nxsb)/2)
+        function ifuo(v::Vector{Float64})
+            x = v[1]
+            # print("Calc: ", x)
+            ifu(x)
+        end
+
+        function ifu1(x::Float64)::Float64
+            # print(format("Calc: {}\n", x))
+            ifu(x)
+        end
+
+        res = optimize(ifu1,
+                       convert(Float64, nxsb),
+                       convert(Float64, nxse),
+                       GoldenSection())
+        miny = Optim.minimum(res)
+        minx = Optim.minimizer(res)
+        # print("Minimum:", minx, "\n")
+        plot!(plt, [minx], [miny], seriestype=:scatter,
+              markercolor = :red,
+              label=format(L"Appox. $\min\quad {{q_0}}={}$", minx),
+              legend=:top)
+
+        xlabel!(L"$q_0$ value")
+        ylabel!(L"$\chi^2$")
+        # ylims!(0, answer.ini.zmax)
+        # xlims!(0, ceil(maximum(answer.T[:])/100)*100+100)
+
+        if typeof(geothermChiSquarefig) == string
+            savefig(plt, appRoot * "/" * geothermChiSquarefig)
+        else
+            Plots.svg(plt, geothermChiSquarefig)
+        end
+
+        plt = undef
+
+        # print("Compiling for an optimal q0\n")
+
+        q0 = convert(Float64, minx)         # [mW/m^2] surface heat flow
+
+        ai = answer.ini
+
+        gpOpt = GTInit([q0], ai.D, ai.zbot, ai.zmax, ai.dz, ai.P, ai.H, ai.iref, false)
+
+        answero = userComputeGeotherm(gpOpt, answer.D)
+
+        plt = plot()
+
+        plot!(plt, answero.D.T_C, answero.D.D_km,
+              seriestype=:scatter, label="Measurements")
+        xlabel!(L"Temperature ${}^\circ$C");
+        ylabel!("Depth [km]");
+        ylims!(0, answero.ini.zmax)
+        xlims!(0, ceil(maximum(answero.T[:])/100)*100+100)
+
+        foreach(plt_gt, answero.GT)
+        # print(answero.GT)
+        if typeof(geothermOptfig) == String
+            savefig(plt, appRoot * "/" * geothermOptfig)
+            print("Saved " * appRoot * "/" * geothermOptfig)
+        else
+            Plots.svg(plt, geothermOptfig)
+        end
+        answero
+    else
+        nothing
     end
-
-    res = optimize(ifu1,
-                   convert(Float64, nxsb),
-                   convert(Float64, nxse),
-                   GoldenSection())
-    miny = Optim.minimum(res)
-    minx = Optim.minimizer(res)
-    print("Minimum:", minx, "\n")
-    plot!(plt, [minx], [miny], seriestype=:scatter,
-          markercolor = :red,
-          label=format(L"Appox. $\min\quad {{q_0}}={}$", minx),
-          legend=:top)
-
-    xlabel!(L"$q_0$ value")
-    ylabel!(L"$\chi^2$")
-    # ylims!(0, answer.ini.zmax)
-    # xlims!(0, ceil(maximum(answer.T[:])/100)*100+100)
-    savefig(plt, appRoot * "/geotherm-chisquare.svg")
-    plt = undef
-
-    print("Compiling for an optimal q0\n")
-
-
-
-    q0 = convert(Float64, minx)         # [mW/m^2] surface heat flow
-
-    ai = answer.ini
-
-    gpOpt = GTInit([q0], ai.D, ai.zbot, ai.zmax, ai.dz, ai.P, ai.H, ai.iref, false)
-
-    answero = userComputeGeotherm(gpOpt, answer.D)
-
-    plt = plot()
-
-    plot!(plt, answero.D.T_C, answero.D.D_km,
-          seriestype=:scatter, label="Measurements")
-    xlabel!(L"Temperature ${}^\circ$C");
-    ylabel!("Depth [km]");
-    ylims!(0, answero.ini.zmax)
-    xlims!(0, ceil(maximum(answero.T[:])/100)*100+100)
-    # function plt_gt(gt::Geotherm)
-    #     plot!(plt, gt.T, gt.z, label=gt.label,
-    #           linewith=3, yflip=true,
-    #           legend=:bottomleft)
-    # end
-    foreach(plt_gt, answero.GT)
-    # print(answero.GT)
-    savefig(plt, appRoot * "/geotherm-opt.svg")
-    print("Saved " * appRoot * "/geotherm-opt.svg")
 end
 
 # function main()

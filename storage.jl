@@ -175,7 +175,7 @@ end
 
 function getDefaultModel()
     mdl = MB()
-    mdl["q0"] = "[30:1:40]"
+    mdl["q0"] = "30:1:40"
     mdl["D"] = "16"
     mdl["Zbot"] = "[16,23,39,300]"
     mdl["Zmax"] = "255"
@@ -558,10 +558,57 @@ function ep(s::String)::Any
     s |> Meta.parse |> eval
 end
 
+function rmHeader(svg::String)::String
+    lines = split(svg, "\n")
+    join(lines[2:end],"\n")
+end
+
+
+function removeFigs(prj::Mongoc.BSON)
+    m = prj
+    obj = Mongoc.BSON()
+    println(m)
+    obj["model"] = m["uuid"]
+    db = config.client[config.dbName]
+    coll = db["figures"]
+    obj = Mongoc.delete_many(coll, obj)
+end
+
+function saveFig(prj::Mongoc.BSON, svg::String, key::String)
+    m = prj
+    obj = Mongoc.BSON()
+    obj["model"] = m["uuid"]
+    obj["uuid"] = uuid4()
+    obj["figure"] = svg
+    obj["key"] = key
+    db = config.client[config.dbName]
+    coll = db["figures"]
+    obj = Mongoc.insert_one(coll, obj)
+end
+
 route(API*"/project/:uuid/calculate", method=POST) do
     uuid=UUIDs.UUID(payload(:uuid))
 
-    ini = GTInit(m["q"] |> ep
+    pdr = getProjectData(uuid)
+    if pdr.level >= ERROR
+        return rj(pdf)
+    end
+
+    prj = pdr.value
+
+    mr = getModelData(UUID(prj["model"]))
+    if mr.level >= ERROR
+        return rj(mr)
+    end
+
+    m = mr.value
+
+    # println(m)
+
+    optimize =  m["optimize"] |> ep
+    # optimize = true
+
+    ini = GTInit(m["q0"] |> ep
                  , m["D"] |> ep
                  , m["Zbot"] |> ep
                  , m["Zmax"] |> ep
@@ -569,9 +616,36 @@ route(API*"/project/:uuid/calculate", method=POST) do
                  , m["P"] |> ep
                  , m["H"] |> ep
                  , m["iref"] |> ep
-                 , m["optimize"] |> ep
+                 , optimize
                  )
+
+    df = DataFrame(prj["data"])
+    df = canonifyDF(df)
+
+    println(df)
+
     gtRes = userComputeGeotherm(ini, df)
+
+    figIO = IOBuffer()
+    figChiIO = IOBuffer()
+    figOptIO = IOBuffer()
+
+    gtOptRes = userPlot(gtRes, "", figIO, figChiIO, figOptIO)
+
+    fig = figIO |> take! |> String |> rmHeader
+    if optimize
+        figChi = figChiIO |> take! |> String |> rmHeader
+        figOpt = figOptIO |> take! |> String |> rmHeader
+    end
+
+    # println(fig)
+
+    removeFigs(prj)
+    saveFig(prj, fig, "geotherms")
+    if optimize
+        saveFig(prj, figChi, "chisquare")
+        saveFig(prj, figOpt, "optimized")
+    end
 
     rc=Result("computed", OK, "Successfully computed!")
     rj(rc)
