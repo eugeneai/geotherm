@@ -184,6 +184,8 @@ function getDefaultModel()
     mdl["H"] = "[0,0.4,0.4,0.02]"
     mdl["iref"] = "3"
     mdl["optimize"] = "false"
+    # println("---------------- HERE! ")
+    # mdl["optimize"] = "true"
     # NOTE: There is no user reference!
     return Result(mdl, OK, "Default model")
 end
@@ -611,6 +613,7 @@ route(API*"project/:uuid/calculate", method=POST) do
     # println(m)
 
     optimize =  m["optimize"] |> ep
+    # println("Optimize:", optimize, " <- ", m["optimize"])
     # optimize = true
 
     ini = GTInit(m["q0"] |> ep
