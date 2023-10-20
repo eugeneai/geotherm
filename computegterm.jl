@@ -87,6 +87,8 @@ end
 function userComputeGeotherm(initParameters :: GTInit,
                              dataf :: DataFrame) :: GTResult
     ini = initParameters
+    println("Initial parameters:")
+    println(ini)
     maximumf = combine(dataf, [:D_km, :T_C, :T_K] .=> maximum)
     println(maximumf)
 
@@ -215,7 +217,7 @@ end
 function run()
     q0 = 33:0.2:40         # [mW/m^2] surface heat flow
     # q0 = 20:10:100         # [mW/m^2] surface heat flow
-    GP = defaultGTInit(q0)
+    GP = defaultGTInit(q0, true)
     dataf = userLoadCSV("./data/PT Ybileynaya_Gtherm.csv")
     answer = userComputeGeotherm(GP, dataf)
     userPlot(answer, appRoot,
@@ -244,8 +246,13 @@ function userPlot(answer::GTResult,
     end
     foreach(plt_gt, answer.GT)
 
+    function _savefig(plt, pathName)
+        println("SaveFig into " * pathName )
+        savefig(plt, pathName)
+    end
+
     if typeof(geothermfig) == String
-        savefig(plt, appRoot * "/" * geothermfig)
+        _savefig(plt, appRoot * "/" * geothermfig)
     else
         Plots.svg(plt, geothermfig)
     end
@@ -288,8 +295,8 @@ function userPlot(answer::GTResult,
         # ylims!(0, answer.ini.zmax)
         # xlims!(0, ceil(maximum(answer.T[:])/100)*100+100)
 
-        if typeof(geothermChiSquarefig) == string
-            savefig(plt, appRoot * "/" * geothermChiSquarefig)
+        if typeof(geothermChiSquarefig) == String
+            _savefig(plt, appRoot * "/" * geothermChiSquarefig)
         else
             Plots.svg(plt, geothermChiSquarefig)
         end
@@ -318,7 +325,7 @@ function userPlot(answer::GTResult,
         foreach(plt_gt, answero.GT)
         # print(answero.GT)
         if typeof(geothermOptfig) == String
-            savefig(plt, appRoot * "/" * geothermOptfig)
+            _savefig(plt, appRoot * "/" * geothermOptfig)
             print("Saved " * appRoot * "/" * geothermOptfig)
         else
             Plots.svg(plt, geothermOptfig)
@@ -330,7 +337,10 @@ function userPlot(answer::GTResult,
 end
 
 # function main()
-# run()
+#     run()
 # end
 
 # main()
+
+# GTInit(33.0:0.2:40.0, 16.0, [16, 23, 39, 300], 225.0, 0.1, 0.74, [0.0, 0.4, 0.4, 0.02], 3, true)
+# GTInit(30:1:40,       16.0, [16, 23, 39, 300], 255.0, 0.1, 0.74, [0.0, 0.4, 0.4, 0.2], 3, false)

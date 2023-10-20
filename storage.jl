@@ -181,7 +181,7 @@ function getDefaultModel()
     mdl["Zmax"] = "255"
     mdl["Dz"] = "0.1"
     mdl["P"] = "0.74"
-    mdl["H"] = "[0,0.4,0.4,0.2]"
+    mdl["H"] = "[0,0.4,0.4,0.02]"
     mdl["iref"] = "3"
     mdl["optimize"] = "false"
     # NOTE: There is no user reference!
@@ -546,7 +546,7 @@ route(API*"project/:uuid/dataframe", method=POST) do
     rj(rc)
 end
 
-route(API*"/test", method=POST) do
+route(API*"test", method=POST) do
     js = postpayload(:JSON_PAYLOAD)
     println(js)
     uuid=js["uuid"]
@@ -560,6 +560,10 @@ end
 
 function rmHeader(svg::String)::String
     lines = split(svg, "\n")
+    xmlns = lines[2]
+    xmlns = replace(xmlns,  r"(width|height)=\".+?\" " => s"")
+    lines[2] = xmlns
+    println(xmlns)
     join(lines[2:end],"\n")
 end
 
@@ -568,7 +572,7 @@ function removeFigs(prj::Mongoc.BSON)
     m = prj
     obj = Mongoc.BSON()
     println(m)
-    obj["model"] = m["uuid"]
+    obj["project"] = m["uuid"]
     db = config.client[config.dbName]
     coll = db["figures"]
     obj = Mongoc.delete_many(coll, obj)
@@ -577,8 +581,9 @@ end
 function saveFig(prj::Mongoc.BSON, svg::String, key::String)
     m = prj
     obj = Mongoc.BSON()
-    obj["model"] = m["uuid"]
-    obj["uuid"] = uuid4()
+    obj["project"] = m["uuid"]
+    obj["user"] = m["user"]
+    obj["uuid"] = uuid4() |> string
     obj["figure"] = svg
     obj["key"] = key
     db = config.client[config.dbName]
@@ -586,7 +591,7 @@ function saveFig(prj::Mongoc.BSON, svg::String, key::String)
     obj = Mongoc.insert_one(coll, obj)
 end
 
-route(API*"/project/:uuid/calculate", method=POST) do
+route(API*"project/:uuid/calculate", method=POST) do
     uuid=UUIDs.UUID(payload(:uuid))
 
     pdr = getProjectData(uuid)
@@ -632,10 +637,10 @@ route(API*"/project/:uuid/calculate", method=POST) do
 
     gtOptRes = userPlot(gtRes, "", figIO, figChiIO, figOptIO)
 
-    fig = figIO |> take! |> String |> rmHeader
+    fig = figIO |> take! |> String
     if optimize
-        figChi = figChiIO |> take! |> String |> rmHeader
-        figOpt = figOptIO |> take! |> String |> rmHeader
+        figChi = figChiIO |> take! |> String
+        figOpt = figOptIO |> take! |> String
     end
 
     # println(fig)
@@ -650,6 +655,37 @@ route(API*"/project/:uuid/calculate", method=POST) do
     rc=Result("computed", OK, "Successfully computed!")
     rj(rc)
 end
+
+route(API*"project/:uuid/graphs", method=POST) do
+    uuid=UUIDs.UUID(payload(:uuid))
+
+    pdr = getProjectData(uuid)
+    if pdr.level >= ERROR
+        return rj(pdf)
+    end
+    prj = pdr.value;
+
+    obj = Mongoc.BSON()
+    obj["project"] = prj["uuid"]
+    db = config.client[config.dbName]
+    coll = db["figures"]
+    objs = []
+    for o in Mongoc.find(coll, obj)
+        o["figure"] = o["figure"] |> rmHeader
+        push!(objs, o)
+    end
+    # println(objs)
+    if length(obj) == 0
+        answer = MB()
+        answer["uuid"]=uuid
+        rc = Result(answer, ERROR, "not found")
+    else
+        rc = Result(objs, OK, "found")
+    end
+
+    rj(rc)
+end
+
 
 function main()
     mongoClient = connectDb()
