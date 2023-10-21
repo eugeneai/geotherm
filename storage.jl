@@ -550,7 +550,7 @@ end
 
 route(API*"test", method=POST) do
     js = postpayload(:JSON_PAYLOAD)
-    println(js)
+    # println(js)
     uuid=js["uuid"]
     rc=Result(uuid, OK, "Server functioning")
     rj(rc)
@@ -664,7 +664,7 @@ route(API*"project/:uuid/graphs", method=POST) do
 
     pdr = getProjectData(uuid)
     if pdr.level >= ERROR
-        return rj(pdf)
+        return rj(pdr)
     end
     prj = pdr.value;
 
@@ -689,6 +689,31 @@ route(API*"project/:uuid/graphs", method=POST) do
     rj(rc)
 end
 
+
+route(API*"project/:uuid/savemodel", method=POST) do
+    uuid=UUIDs.UUID(payload(:uuid))
+    js = postpayload(:JSON_PAYLOAD)
+    println(js)
+
+    pdr = getProjectData(uuid)
+    if pdr.level >= ERROR
+        return rj(pdr)
+    end
+    prj = pdr.value;
+
+    obj = Mongoc.BSON()
+    obj["project"] = prj["uuid"]
+    db = config.client[config.dbName]
+    coll = db["figures"]
+    objs = []
+    model = getModelData(UUID(prj["model"]))
+    if model.level >= ERROR
+        return rj(model)
+    end
+
+    rc = Result(prj["uuid"], ERROR, "Data not saved.")
+    rj(rc)
+end
 
 function main()
     mongoClient = connectDb()
