@@ -112,6 +112,7 @@ function getData(okf::Function, uuid::UUID, collection::String)::Result
         answer["uuid"]=uuid
         return Result(answer, ERROR, "not found")
     else
+        # delete!(obj, "_id")
         okf(obj)
         return Result(obj, OK, "found")
     end
@@ -148,31 +149,6 @@ function getModelData(uuid::UUID)::Result
     end
 end
 
-function storeModelData(projectUuid::UUID, newData::MB)::UUID
-    project = getProjectData(projectUuid)
-    modelsuuid = project["model"]
-
-    obj = Mongoc.BSON()
-    db = config.client[config.dbName]
-    coll = db["models"]
-    projects = db["projects"]
-
-    if modelsuuid == (config.defaultModelUUID |> string)
-        modelsuuid = uuid4() |> string
-        newData["uuid"] = modelsuuid
-        obj = MB
-        obj["uuid"] = projectUuid |> string
-        upd = MB()
-        upd["$set"]=MB("model" => modelsuuid)
-        Mongoc.update_one(projects, obj, upd); # Set new modelUUID
-    else
-        obj["uuid"] = modelsuuid
-        obj1 = Mongoc.delete_one(coll, obj)
-    end
-    Mongoc.insert_one(coll,newData);
-    return Result("Model updated", OK, "Model data updated successfully!")
-end
-
 function getDefaultModel()
     mdl = MB()
     mdl["q0"] = "30:1:40"
@@ -184,6 +160,7 @@ function getDefaultModel()
     mdl["H"] = "[0,0.4,0.4,0.02]"
     mdl["iref"] = "3"
     mdl["optimize"] = "false"
+    mdl["uuid"] = config.defaultModelUUID |> string
     # println("---------------- HERE! ")
     # mdl["optimize"] = "true"
     # NOTE: There is no user reference!
@@ -612,7 +589,7 @@ route(API*"project/:uuid/calculate", method=POST) do
 
     # println(m)
 
-    optimize =  m["optimize"] |> ep
+    optimize =  m["optimize"]  # |> ep
     # println("Optimize:", optimize, " <- ", m["optimize"])
     # optimize = true
 
@@ -690,28 +667,65 @@ route(API*"project/:uuid/graphs", method=POST) do
 end
 
 
+function storeModelData(projectUuid::UUID, newData::MB)::Result
+    pdr = getProjectData(projectUuid)
+    if pdr.level >= ERROR
+        return pdr
+    end
+    project = pdr.value;
+
+    modelsuuid = project["model"]
+
+    modelr = getModelData(UUID(modelsuuid))
+    model = nothing
+    if modelr.level < ERROR
+        model = modelr.value
+    end
+
+    obj = Mongoc.BSON()
+    db = config.client[config.dbName]
+    models = db["models"]
+    projects = db["projects"]
+
+    if modelsuuid == (config.defaultModelUUID |> string)
+        modelsuuid = uuid4() |> string
+        obj = MB()
+        obj["uuid"] = projectUuid |> string
+        upd = MB()
+        upd["\$set"]=MB("model" => modelsuuid)
+        Mongoc.update_one(projects, obj, upd); # Set new modelUUID
+        println("MODEL STORE: Created a new record")
+    else
+        obj["uuid"] = modelsuuid
+        obj1 = Mongoc.delete_one(models, obj)
+        println("MODEL STORE: Deleted record")
+    end
+    newData["uuid"] = modelsuuid
+    newData["user"] = project["user"]
+    Mongoc.insert_one(models,newData);
+    println("MODEL STORE: Stored a record")
+    sessionCache[projectUuid |> string] = Result(project, OK, "Cached project")
+    sessionCache[modelsuuid ] = Result(newData, OK, "Cached Model")
+    return Result(newData, OK, "Model data updated successfully!")
+end
+
 route(API*"project/:uuid/savemodel", method=POST) do
     uuid=UUIDs.UUID(payload(:uuid))
     js = postpayload(:JSON_PAYLOAD)
-    println(js)
+    #println(js)
 
-    pdr = getProjectData(uuid)
-    if pdr.level >= ERROR
-        return rj(pdr)
+    rc = storeModelData(uuid, MB(js))
+    rj(rc)
+end
+
+
+route(API*"project/:uuid/model", method=POST) do
+    uuid=UUIDs.UUID(payload(:uuid))
+    prj = getProjectData(uuid)
+    if prj.level >= ERROR
+        return rj(prj)
     end
-    prj = pdr.value;
-
-    obj = Mongoc.BSON()
-    obj["project"] = prj["uuid"]
-    db = config.client[config.dbName]
-    coll = db["figures"]
-    objs = []
-    model = getModelData(UUID(prj["model"]))
-    if model.level >= ERROR
-        return rj(model)
-    end
-
-    rc = Result(prj["uuid"], ERROR, "Data not saved.")
+    rc = getModelData(UUID(prj.value["model"]))
     rj(rc)
 end
 
