@@ -6,6 +6,7 @@ using Genie, Genie.Requests
 import Genie.Cookies as GC
 # import GenieSession as GS
 using Genie.Renderer.Json
+using Genie.Renderer
 import Genie.Requests as GRQ
 import Genie.Responses as GE
 using SMTPClient
@@ -103,14 +104,15 @@ end
 
 function getData(okf::Function, uuid::UUID, collection::String)::Result
     obj = Mongoc.BSON()
-    obj["uuid"] = string(uuid)
+    suuid = uuid |> string
+    obj["uuid"] = suuid
     db = config.client[config.dbName]
     coll = db[collection]
     obj = Mongoc.find_one(coll, obj)
     if isnothing(obj)
         answer = MB()
-        answer["uuid"]=uuid
-        return Result(answer, ERROR, "not found")
+        answer["uuid"]=suuid
+        return Result(answer, ERROR, collection * " object not found uuid=" * suuid)
     else
         # delete!(obj, "_id")
         okf(obj)
@@ -143,7 +145,14 @@ function getModelData(uuid::UUID)::Result
         if uuid == config.defaultModelUUID
             getDefaultModel()
         else
-            getData(uuid, "models") do mdl
+            rc = getData(uuid, "models") do mdl
+            end
+            if rc.level >= ERROR
+                rc = getDefaultModel()
+                Result(rc.value, rc.level,
+                       rc.description * "(model lost, reset to the default)")
+            else
+                rc
             end
         end
     end
@@ -346,6 +355,9 @@ function rj(answer::Result)
         end
     if config.debug
         println("INFO:RETURNING:", json(d), l)
+    end
+    if l>= ERROR
+        println("ERROR:RETURNING:", json(d), l)
     end
     json(d)
 end
@@ -589,8 +601,13 @@ route(API*"project/:uuid/calculate", method=POST) do
 
     # println(m)
 
-    optimize =  m["optimize"]  # |> ep
-    # println("Optimize:", optimize, " <- ", m["optimize"])
+    optimize =  m["optimize"]
+
+    if typeof(optimize) == String
+        optimize = optimize |> ep
+    end
+
+    println("Optimize:", optimize, " <- ", m["optimize"])
     # optimize = true
 
     ini = GTInit(m["q0"] |> ep
@@ -605,7 +622,20 @@ route(API*"project/:uuid/calculate", method=POST) do
                  )
 
     df = DataFrame(prj["data"])
-    df = canonifyDF(df)
+    if haskey(prj, "rename")
+        ren = prj["rename"]
+        dfnew :: IdDict{String,Any} = IdDict()
+        for (k,v) in ren
+            if v=="ignored"
+                continue
+            end
+            dfnew[v] = df[:, k]
+        end
+        df = DataFrame(dfnew)
+        df = canonifyRenamedDF(df)
+    else
+        df = canonifyDF(df) # Try calculate as is
+    end
 
     println(df)
 
@@ -666,6 +696,37 @@ route(API*"project/:uuid/graphs", method=POST) do
     rj(rc)
 end
 
+route(API*"project/:uuid/figure/:key", method=GET) do
+    uuid=UUIDs.UUID(payload(:uuid))
+    key=payload(:key)
+
+    pdr = getProjectData(uuid)
+    if pdr.level >= ERROR
+        return rj(pdr)
+    end
+    prj = pdr.value;
+
+    obj = Mongoc.BSON()
+    obj["project"] = prj["uuid"]
+    obj["key"] = key
+    db = config.client[config.dbName]
+    coll = db["figures"]
+    obj = Mongoc.find_one(coll, obj)
+    # println(objs)
+    if isnothing(obj)
+        resp = GE.getresponse() # response("file not found", :text)
+        GE.setbody!(resp, "file not found")
+        GE.setstatus!(resp, 404)
+        return resp
+    end
+    println(obj["figure"])
+    resp = GE.getresponse()
+    # Content-Type: image/svg+xml
+    GE.setbody!(resp, obj["figure"])
+    GE.setstatus!(resp, 200)
+    GE.setheaders!(resp, Dict("Content-type" => "image/svg+xml"))
+end
+
 
 function storeModelData(projectUuid::UUID, newData::MB)::Result
     pdr = getProjectData(projectUuid)
@@ -695,6 +756,7 @@ function storeModelData(projectUuid::UUID, newData::MB)::Result
         upd["\$set"]=MB("model" => modelsuuid)
         Mongoc.update_one(projects, obj, upd); # Set new modelUUID
         println("MODEL STORE: Created a new record")
+        delete!(sessionCache, obj["uuid"]) # Invalidate project data in the session cache
     else
         obj["uuid"] = modelsuuid
         obj1 = Mongoc.delete_one(models, obj)
@@ -718,6 +780,40 @@ route(API*"project/:uuid/savemodel", method=POST) do
     rj(rc)
 end
 
+route(API*"project/:uuid/setup", method=POST) do
+    uuid=UUIDs.UUID(payload(:uuid))
+    js = postpayload(:JSON_PAYLOAD)
+
+    prjr = getProjectData(uuid)
+    if prjr.level >= ERROR
+        return rj(prjr)
+    end
+
+    prj = prjr.value
+
+    colNames = js["colNames"]
+    colRoles = js["colRoles"]
+
+    trans :: Dict{String,String} = Dict()
+    for (k,v) in zip(colNames, colRoles)
+        if (k!=v)
+            trans[k] = v
+        end
+    end
+
+    obj = Mongoc.BSON()
+    db = config.client[config.dbName]
+    projects = db["projects"]
+    obj = MB()
+    obj["uuid"] = prj["uuid"]
+    upd = MB()
+    upd["\$set"]=MB("rename" => Mongoc.BSON(trans))
+    Mongoc.update_one(projects, obj, upd); # Set column renaming
+    delete!(sessionCache, prj["uuid"]) # Invalidate the cache data
+
+    rc = Result(uuid |> string, OK, "Setup accepted")
+    rj(rc)
+end
 
 route(API*"project/:uuid/model", method=POST) do
     uuid=UUIDs.UUID(payload(:uuid))

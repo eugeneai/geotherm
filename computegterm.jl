@@ -79,6 +79,33 @@ function canonifyDF(pt::DataFrame)::DataFrame
     DataFrame(D_km=Dkm, P_GPa=PGPa, T_C=TC, T_K=TK)
 end
 
+function canonifyRenamedDF(pt::DataFrame)::DataFrame
+    pt_n = names(pt)
+    println(pt_n)
+    if "T_C" in pt_n
+        TC = pt.T_C
+        TK = TC .+ 273
+    elseif "T_K" in pt_n
+        TK = pt.T_K
+        TC = TK .- 273
+    end
+    if "D_km" in pt_n
+        Dkm = pt.D_km
+        PGPa = pt.d |> pressure
+    elseif "D_m" in pt_n
+        Dkm = pt.D_m ./ 1000
+        PGPa = pt.d |> pressure
+    elseif "P_GPa" in pt_n
+        PGPa = pt.P_GPa
+        Dkm = PGPa |> depth
+    elseif "P_kbar" in pt_n
+        PGPa = pt.P_kbar ./ 10.0
+        Dkm = PGPa |> depth
+    end
+    DataFrame(D_km=Dkm, P_GPa=PGPa, T_C=TC, T_K=TK)
+end
+
+
 function userLoadCSV(fileName :: String) :: DataFrame
     pt = CSV.read(fileName, DataFrame, delim=';', decimal=',')
     pt |> canonifyDF
