@@ -455,8 +455,9 @@ route(API*"user/authenticate", method=POST) do
 end
 
 
-route(API*"user/:uuid/projects", method=POST) do
+route(API*"user/:uuid/projects/:archived", method=POST) do
     uuid=UUIDs.UUID(payload(:uuid))
+    archived=payload(:archived)
     rc = getUserData(uuid)
     if rc.level >= ERROR
         return rj(rc)
@@ -491,8 +492,10 @@ route(API*"user/:uuid/projects", method=POST) do
         row["model"] = a["model"]
         row["uuid"] = a["uuid"]
         row["user"] = a["user"]
-
-        print(row)
+        if ! haskey(a, "archived")
+            row["archived"] = false
+        end
+        # print(row)
         row
     end
 
@@ -520,6 +523,7 @@ route(API*"user/:uuid/projects", method=POST) do
             v = md.value
             row["modelData"] = v
             row["name"] = "(DEMO)"*row["name"]
+            row["archived"] = false
             push!(answer, row)
         end
     end
