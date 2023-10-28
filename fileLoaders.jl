@@ -2,41 +2,45 @@
 using DataFrames
 import XLSX
 using Formatting
+using OrderedCollections
 
-DataFrameArrayOrNothing = Union{Array{DataFrame},Nothing}
+LoadRet = Union{Vector{Tuple{String,DataFrame}},Nothing}
 
-function loadTsv(httpFile)::DataFrameArrayOrNothing
+function loadTsv(httpFile, projectName::String)::LoadRet
 end
 
-function loadCsv(httpFile)::DataFrameArrayOrNothing
+function loadCsv(httpFile, projectName::String)::LoadRet
     (name, ext) = FS.splitext(httpFile.name)
     pt = CSV.read(httpFile.data, DataFrame, delim=';', decimal=',')
-    [pt]
-    # [pt |> canonifyDF]
-    #println(df)
-    #Result(df, OK, "Read")
+    [(projectName, pt)]
 end
 
 
-function loadXlsx(httpFile)::DataFrameArrayOrNothing
+function loadXlsx(httpFile, projectName::String)::LoadRet
     buf = IOBuffer(httpFile.data)
     tables = recognizeXlsx(buf)
-    rc = DataFrame(tables)
-    println(rc)
-    rc
+    answer :: LoadRet = []
+    for (k,v) in tables
+        push!(answer, (projectName * '-' * k, DataFrame(v)))
+    end
+    println(answer)
+    if isempty(answer)
+        return nothing
+    end
+    answer
 end
 
-function recognizeXlsx(buf)::Dict{String,Any}
+function recognizeXlsx(buf)::OrderedDict{String,Any}
     xf = XLSX.readxlsx(buf)
     maxwidth = 10
     maxheight = 1000
     maxvskip = 20
     maxhskip = 20
     rc::Array{DataFrame} = []
-    tables = Dict()
+    tables = OrderedDict()
     for sname in XLSX.sheetnames(xf)
-        println("Sheet " * sname)
-        tbl = Dict()
+        # println("Sheet " * sname)
+        tbl = OrderedDict()
         sh = xf[sname]
         rs = maxhskip + maxheight
         cc = maxvskip + maxwidth
@@ -55,7 +59,7 @@ function recognizeXlsx(buf)::Dict{String,Any}
         if ! found
             continue
         else
-            println("top-left:",cc,":",rs)
+            # println("top-left:",cc,":",rs)
         end
         for c in cc:cc+maxwidth
             col::Array{Union{String,Float64,Missing}} = []
@@ -91,7 +95,6 @@ function recognizeXlsx(buf)::Dict{String,Any}
     # println(tables)
     tables
 end
-
 
 function localMain()::Dict{String, Any}
     buf = open("data/test.xlsx", "r")

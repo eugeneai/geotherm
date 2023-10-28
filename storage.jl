@@ -309,13 +309,8 @@ end
 function storeDataFrames(dfs, userData, projectName)::Vector{UUID}
     uuids = Vector{UUID}()
     for i in eachindex(dfs)
-        df = dfs[i]
-        if length(dfs) > 1
-            pn = projectName * "-" * string(i)
-        else
-            pn = projectName
-        end
-        uuid = storeDataFrame(df, userData, pn)
+        (dfname, df) = dfs[i]
+        uuid = storeDataFrame(df, userData, dfname)
         if ! isnothing(uuid)
             push!(uuids, uuid)
         end
@@ -383,20 +378,22 @@ route(API*"user/:uuid/project/upload", method=POST) do
         name = httpFile |> filename
         mime = httpFile.mime
         data = httpFile.data
+        projectName,_ext = FS.splitext(name)
+        # dfs = (Project-name, DataFrame)
         if mime == "text/csv"
-            dfs = loadCsv(httpFile)
+            dfs = loadCsv(httpFile, projectName)
         elseif mime == "text/tsv"
-            dfs = loadTsv(httpFile)
-        elseif mime == "application/vnd.openxmlformats-officedocument.spreadsheetml.sheet"
-            dfs = loadXlsx(httpFile)
+            dfs = loadTsv(httpFile, projectName)
+        elseif mime ==
+            "application/vnd.openxmlformats-officedocument.spreadsheetml.sheet"
+            dfs = loadXlsx(httpFile, projectName)
         else
             dfs = nothing
         end
 
-        if isnothing(dfs)
+        if isnothing(dfs) || isempty(dfs)
             rc = Result(mime, ERROR, "File type " * mime * " cannot be loaded!")
         else
-            projectName,_ext = FS.splitext(name)
             uuids = storeDataFrames(dfs, userData, projectName)
             if length(uuids) > 0
                 rc = Result(uuids, OK, "File data has successfully uploaded! "
