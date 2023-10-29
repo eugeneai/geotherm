@@ -63,6 +63,7 @@ Genie.config.cors_allowed_origins = ["*"]
     INFO = 2
     DEBUG = 3
     ERROR = 10
+    NOTFOUND = 11
     FATAL = 20
 end
 
@@ -102,17 +103,21 @@ function connectDb()
     return mongoClient
 end
 
-function getData(okf::Function, uuid::UUID, collection::String)::Result
+function getData(okf::Function, uuid::UUID, collection::String,
+                 useruuid::Union{UUID,Nothing}=nothing)::Result
     obj = Mongoc.BSON()
     suuid = uuid |> string
     obj["uuid"] = suuid
+    if ! isnothing(useruuid)
+        obj["user"] = useruuid |> string
+    end
     db = config.client[config.dbName]
     coll = db[collection]
     obj = Mongoc.find_one(coll, obj)
     if isnothing(obj)
         answer = MB()
         answer["uuid"]=suuid
-        return Result(answer, ERROR, collection * " object not found uuid=" * suuid)
+        return Result(answer, NOTFOUND, collection * " object not found uuid=" * suuid)
     else
         # delete!(obj, "_id")
         okf(obj)
@@ -492,8 +497,16 @@ route(API*"user/:uuid/projects/:archived", method=POST) do
         row["model"] = a["model"]
         row["uuid"] = a["uuid"]
         row["user"] = a["user"]
-        if ! haskey(a, "archived")
-            row["archived"] = false
+        puuid = a["uuid"] |> UUID
+        usuuid = a["user"]
+        archivedr = cache!(puuid) do
+            getData(puuid, "tagging", UUID(usuuid)) do o
+            end
+        end
+        if archivedr.level == NOTFOUND
+            row["tags"] = []
+        else
+            row["tags"] = archivedr.value["tags"]
         end
         # print(row)
         row
@@ -503,6 +516,9 @@ route(API*"user/:uuid/projects/:archived", method=POST) do
         row = canonify(a)
         if config.demoDataUUID == UUID(a["uuid"])
             demoFound = true
+            tags = row["tags"]
+            push!(tags, "demo")
+            row["tags"] = tags
         end
         md = getModelData(UUID(row["model"]))
         if md.level >= ERROR
@@ -524,6 +540,9 @@ route(API*"user/:uuid/projects/:archived", method=POST) do
             row["modelData"] = v
             row["name"] = "(DEMO)"*row["name"]
             row["archived"] = false
+            tags = row["tags"]
+            push!(tags, "demo")
+            row["tags"] = tags
             push!(answer, row)
         end
     end
