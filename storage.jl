@@ -119,17 +119,19 @@ function getData(okf::Function, uuid::UUID, collection::String,
         answer["uuid"]=suuid
         return Result(answer, NOTFOUND, collection * " object not found uuid=" * suuid)
     else
-        # delete!(obj, "_id")
+        obj["_id"]=suuid
         okf(obj)
         return Result(obj, OK, "found")
     end
 end
 
-function getUserData(uuid::UUID)::Result
+function getUserData(uuid::UUID, removePassword::Bool=true)::Result
     cache!(uuid) do
         println("Getting from Mongo")
         getData(uuid, "users") do v
-            v["password"]="******"
+            if removePassword
+                v["password"]="******"
+            end
         end
     end
 end
@@ -367,6 +369,7 @@ API="/api/1.0/"
 route(API*"user/:uuid/data", method=POST) do
     uuid=UUID(payload(:uuid))
     rc = getUserData(uuid)
+    println(rc)
     rj(rc)
 end
 
@@ -417,6 +420,49 @@ route(API*"user/:uuid/logout", method=POST) do
     uuid=UUID(payload(:uuid))
     rc = logoutUser(uuid)
     rj(rc)
+end
+
+route(API*"user/:uuid/update", method=POST) do
+    uuid=UUID(payload(:uuid))
+    userData=postpayload(:JSON_PAYLOAD)
+    suuid = uuid |> string
+    userr = getUserData(uuid, false)
+    if userr.level >= ERROR
+        return rj(Result(userr.value, ERROR, "Cannot find user! " * userr.description))
+    end
+
+    user = userr.value;
+
+    tryPassword = userData["activePassword"]
+    tryPassword = tryPassword |> strip
+    passwordChange = false
+    if ! isempty(tryPassword)
+        tryPassword = tryPassword |> encryptPassword
+        if tryPassword != user["password"]
+            return rj(Result(MB("uuid" => suuid, ERROR, "Wrong current password!")))
+        end
+        passwordChange = true
+    end
+
+    obj = MB("uuid" => suuid)
+    delete!(userData, "_id")
+    updobj = MB(userData)
+    upd = MB("\$set" => updobj)
+    if passwordChange
+        userData["password"] = userData["password"] |> encryptPassword
+    else
+        delete!(userData, "password")
+    end
+    delete!(userData, "activePassword")
+    if user["email"] != userData["email"]
+        user["emailChecked"] = false
+    end
+    db = config.client[config.dbName]
+    users = db["users"]
+    # println(obj,"\n\n",upd)
+    Mongoc.update_one(users, obj, upd)
+    delete!(sessionCache, suuid)
+    rj(Result(MB("uuid" => suuid), OK, "User profile has updated!"))
 end
 
 route(API*"user/register", method=POST) do
