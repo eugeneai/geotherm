@@ -460,9 +460,8 @@ route(API*"user/authenticate", method=POST) do
 end
 
 
-route(API*"user/:uuid/projects/:archived", method=POST) do
+route(API*"user/:uuid/projects", method=POST) do
     uuid=UUIDs.UUID(payload(:uuid))
-    archived=payload(:archived)
     rc = getUserData(uuid)
     if rc.level >= ERROR
         return rj(rc)
@@ -476,7 +475,6 @@ route(API*"user/:uuid/projects/:archived", method=POST) do
     qdemo = MB("uuid" => string(config.demoDataUUID))
     lim = MB("user" => 1, "uuid" => 1, "name" => 1, "model" => 1, "data" => 0)
 
-    answer :: Vector{MB}=[];
 
     client = config.client
     session = client
@@ -484,6 +482,7 @@ route(API*"user/:uuid/projects/:archived", method=POST) do
     coll = db["projects"]
 
     demoFound = false
+    answer :: Vector{MB}=[];
 
     function canonify(a::Mongoc.BSON)::Mongoc.BSON
         row = MB()
@@ -499,9 +498,7 @@ route(API*"user/:uuid/projects/:archived", method=POST) do
         row["user"] = a["user"]
         puuid = a["uuid"] |> UUID
         usuuid = a["user"]
-        archivedr = cache!(puuid) do
-            getData(puuid, "tagging", UUID(usuuid)) do o
-            end
+        archivedr = getData(puuid, "tagging", UUID(usuuid)) do o
         end
         if archivedr.level == NOTFOUND
             row["tags"] = []
@@ -572,7 +569,7 @@ end
 function rmHeader(svg::String)::String
     lines = split(svg, "\n")
     xmlns = lines[2]
-    xmlns = replace(xmlns,  r"(width|height)=\".+?\" " => s"")
+    xmlns = replace(xmlns, r"(width|height)=\".+?\" " => s"")
     lines[2] = xmlns
     println(xmlns)
     join(lines[2:end],"\n")
@@ -843,6 +840,74 @@ route(API*"project/:uuid/model", method=POST) do
     end
     rc = getModelData(UUID(prj.value["model"]))
     rj(rc)
+end
+
+route(API*"projects/changetag/:op/arg/:arg", method=POST) do
+    op=payload(:op)
+    arg=payload(:arg)
+    js = postpayload(:JSON_PAYLOAD)
+    projects = js["projects"]
+    updated = []
+    println("UPDATE request for ", projects, " ", op, " tag: ", arg)
+    for suuid in projects
+        uuid = suuid |> UUID
+        prjr = getProjectData(uuid)
+        if prjr.level >= ERROR
+            return rj(prj)
+        end
+        prj = prjr.value
+        delete!(sessionCache, suuid) # Invalidate the cache
+        usersuuid = prj["user"]
+        tagsr = getData(uuid, "tagging", UUID(usersuuid)) do o
+        end
+        if tagsr.level == NOTFOUND
+            tags = MB()
+            tags["uuid"] = suuid
+            tags["user"] = usersuuid
+        else
+            tags = tagsr.value
+        end
+        update = false
+        neets = []
+        if op == "add"
+            if tagsr.level == NOTFOUND
+                tags["tags"] = [arg]
+                db = config.client[config.dbName]
+                coll = db["tagging"]
+                Mongoc.insert_one(coll, tags)
+                push!(updated, suuid)
+            else
+                ts = tags["tags"]
+                if ! (arg in ts)
+                    push!(ts, arg)
+                end
+                newts = ts
+                update = true
+            end
+        elseif op=="delete"
+            ts = tags["tags"]
+            filter!( t-> t!=arg, ts)
+            newts=ts
+            update = true
+        else
+            return rj(Result(op, ERROR, "Unknown operation: " * op))
+        end
+        if update
+            db = config.client[config.dbName]
+            tagging = db["tagging"]
+            obj=MB("uuid" => suuid, "user" => usersuuid)
+            if !isempty(newts)
+                upd=MB()
+                upd["\$set"] = MB("tags"=>newts)
+                println(obj, "\n", upd)
+                Mongoc.update_one(tagging, obj, upd)
+            else
+                Mongoc.delete_one(tagging, obj)
+            end
+            push!(updated, suuid)
+        end
+    end
+    rj(Result(updated,OK,"Projects tags have updated"))
 end
 
 function main()
