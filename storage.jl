@@ -19,6 +19,11 @@ import Base.Filesystem as FS
 using DataFrames
 import JSON as JS
 using Formatting
+import Logging
+
+debug_logger = Logging.ConsoleLogger(stderr, Logging.Debug)
+info_logger = Logging.ConsoleLogger(stderr, Logging.Info)
+default_logger = Logging.global_logger(info_logger)
 
 include("computegterm.jl")
 include("fileLoaders.jl")
@@ -792,52 +797,61 @@ end
 
 
 function storeModelData(projectUuid::UUID, newData::MB)::Result
-    pdr = getProjectData(projectUuid)
-    if pdr.level >= ERROR
-        return pdr
+    Logging.with_logger(debug_logger) do
+        @debug "storeModelData begin:" projectUuid newData=newData
+
+        pdr = getProjectData(projectUuid)
+        @debug "getProjectData" pdr=pdr
+        if pdr.level >= ERROR
+            return pdr
+        end
+        project = pdr.value;
+
+        modelsuuid = project["model"]
+
+        modelr = getModelData(UUID(modelsuuid))
+        @debug "getModelData" modelr=modelr
+        model = nothing
+        if modelr.level < ERROR
+            model = modelr.value
+        end
+
+        obj = Mongoc.BSON()
+        db = config.client[config.dbName]
+        models = db["models"]
+        projects = db["projects"]
+
+        if modelsuuid == (config.defaultModelUUID |> string)
+            modelsuuid = uuid4() |> string
+            obj = MB()
+            obj["uuid"] = projectUuid |> string
+            upd = MB()
+            upd["\$set"]=MB("model" => modelsuuid)
+            Mongoc.update_one(projects, obj, upd); # Set new modelUUID
+            @debug "MODEL STORE: New record record by uuid" uuid=modelsuuid
+            delete!(sessionCache, obj["uuid"]) # Invalidate project data in the session cache
+            @debug "MODEL STORE: Deleted SESSION CACHE record by [old] project uuid" uuid=projectUuid
+        else
+            obj["uuid"] = modelsuuid
+            obj1 = Mongoc.delete_one(models, obj)
+            @debug "MODEL STORE: Deleted record by uuid" uuid=modelsuuid
+        end
+        newData["uuid"] = modelsuuid
+        newData["user"] = project["user"]
+        Mongoc.insert_one(models,newData);
+        @debug "MODEL STORE: Stored a record" newData=newData
+        sessionCache[projectUuid |> string] = Result(project, OK, "Cached project")
+        sessionCache[modelsuuid ] = Result(newData, OK, "Cached Model")
+        return Result(newData, OK, "Model data updated successfully!")
     end
-    project = pdr.value;
-
-    modelsuuid = project["model"]
-
-    modelr = getModelData(UUID(modelsuuid))
-    model = nothing
-    if modelr.level < ERROR
-        model = modelr.value
-    end
-
-    obj = Mongoc.BSON()
-    db = config.client[config.dbName]
-    models = db["models"]
-    projects = db["projects"]
-
-    if modelsuuid == (config.defaultModelUUID |> string)
-        modelsuuid = uuid4() |> string
-        obj = MB()
-        obj["uuid"] = projectUuid |> string
-        upd = MB()
-        upd["\$set"]=MB("model" => modelsuuid)
-        Mongoc.update_one(projects, obj, upd); # Set new modelUUID
-        println("MODEL STORE: Created a new record")
-        delete!(sessionCache, obj["uuid"]) # Invalidate project data in the session cache
-    else
-        obj["uuid"] = modelsuuid
-        obj1 = Mongoc.delete_one(models, obj)
-        println("MODEL STORE: Deleted record")
-    end
-    newData["uuid"] = modelsuuid
-    newData["user"] = project["user"]
-    Mongoc.insert_one(models,newData);
-    println("MODEL STORE: Stored a record")
-    sessionCache[projectUuid |> string] = Result(project, OK, "Cached project")
-    sessionCache[modelsuuid ] = Result(newData, OK, "Cached Model")
-    return Result(newData, OK, "Model data updated successfully!")
 end
 
 route(API*"project/:uuid/savemodel", method=POST) do
     uuid=UUIDs.UUID(payload(:uuid))
     js = postpayload(:JSON_PAYLOAD)
-    #println(js)
+
+    println("SAVING:")
+    println(js)
 
     rc = storeModelData(uuid, MB(js))
     rj(rc)
