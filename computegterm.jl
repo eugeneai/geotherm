@@ -91,10 +91,10 @@ function canonifyRenamedDF(pt::DataFrame)::DataFrame
     end
     if "D_km" in pt_n
         Dkm = pt.D_km
-        PGPa = pt.d |> pressure
+        PGPa = Dkm |> pressure
     elseif "D_m" in pt_n
         Dkm = pt.D_m ./ 1000
-        PGPa = pt.d |> pressure
+        PGPa = Dkm |> pressure
     elseif "P_GPa" in pt_n
         PGPa = pt.P_GPa
         Dkm = PGPa |> depth
