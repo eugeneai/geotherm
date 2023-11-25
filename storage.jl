@@ -1,4 +1,5 @@
-import Mongoc
+# import Mongoc
+import kyotocabinet
 import SHA
 using UUIDs
 using Genie, Genie.Requests
@@ -797,11 +798,12 @@ function storeModelData(projectUuid::UUID, newData::MB)::Result
         @debug "storeModelData begin:" projectUuid newData=newData
 
         pdr = getProjectData(projectUuid)
-        @debug "getProjectData" pdr=pdr
+        @debug "getProjectData" level=pdr.level
         if pdr.level >= ERROR
             return pdr
         end
         project = pdr.value;
+
 
         modelsuuid = project["model"]
 
@@ -834,8 +836,8 @@ function storeModelData(projectUuid::UUID, newData::MB)::Result
         end
         newData["uuid"] = modelsuuid
         newData["user"] = project["user"]
-        Mongoc.insert_one(models,newData);
-        @debug "MODEL STORE: Stored a record" newData=newData
+        rc = Mongoc.insert_one(models,newData);
+        @debug "MODEL STORE: Stored a record" newData=newData rc=rc uuid=modelsuuid
         #sessionCache[projectUuid |> string] = Result(project, OK, "Cached project")
         #sessionCache[modelsuuid ] = Result(newData, OK, "Cached Model")
         return Result(newData, OK, "Model data updated successfully!")
@@ -845,10 +847,6 @@ end
 route(API*"project/:uuid/savemodel", method=POST) do
     uuid=UUIDs.UUID(payload(:uuid))
     js = postpayload(:JSON_PAYLOAD)
-
-    println("SAVING:")
-    println(js)
-
     rc = storeModelData(uuid, MB(js))
     rj(rc)
 end
@@ -889,13 +887,17 @@ route(API*"project/:uuid/setup", method=POST) do
 end
 
 route(API*"project/:uuid/model", method=POST) do
-    uuid=UUIDs.UUID(payload(:uuid))
-    prj = getProjectData(uuid)
-    if prj.level >= ERROR
-        return rj(prj)
+    Logging.with_logger(debug_logger) do
+        uuid=UUIDs.UUID(payload(:uuid))
+        prj = getProjectData(uuid)
+        @debug "getProjectData" project_uuid=prj.value["uuid"]
+        if prj.level >= ERROR
+            return rj(prj)
+        end
+        rc = getModelData(UUID(prj.value["model"]))
+        @debug "getModelData" uuid=prj.value["model"] rc=rc
+        rj(rc)
     end
-    rc = getModelData(UUID(prj.value["model"]))
-    rj(rc)
 end
 
 route(API*"projects/changetag/:op/arg/:arg", method=POST) do
