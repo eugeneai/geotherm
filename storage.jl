@@ -90,7 +90,7 @@ function cache!(f::Function, uuid::UUID)::Result
         end
         return result
     else
-        println("Getting from the cache")
+        @debug "Getting from the cache"
         nobj = Result(obj.value, CACHED, "cached")
         return nobj
     end
@@ -142,30 +142,26 @@ function getUserData(uuid::UUID, removePassword::Bool=true)::Result
 end
 
 function getProjectData(uuid::UUID)::Result
-    cache!(uuid) do
-        getData(uuid, "projects") do prj
-            if !haskey(prj, "model")
-                prj["model"] = config.defaultModelUUID |> string
-            end
+    getData(uuid, "projects") do prj
+        if !haskey(prj, "model")
+            prj["model"] = config.defaultModelUUID |> string
         end
     end
 end
 
 
 function getModelData(uuid::UUID)::Result
-    cache!(uuid) do
-        if uuid == config.defaultModelUUID
-            getDefaultModel()
+    if uuid == config.defaultModelUUID
+        getDefaultModel()
+    else
+        rc = getData(uuid, "models") do mdl
+        end
+        if rc.level >= ERROR
+            rc = getDefaultModel()
+            Result(rc.value, rc.level,
+                   rc.description * "(model lost, reset to the default)")
         else
-            rc = getData(uuid, "models") do mdl
-            end
-            if rc.level >= ERROR
-                rc = getDefaultModel()
-                Result(rc.value, rc.level,
-                       rc.description * "(model lost, reset to the default)")
-            else
-                rc
-            end
+            rc
         end
     end
 end
@@ -829,8 +825,8 @@ function storeModelData(projectUuid::UUID, newData::MB)::Result
             upd["\$set"]=MB("model" => modelsuuid)
             Mongoc.update_one(projects, obj, upd); # Set new modelUUID
             @debug "MODEL STORE: New record record by uuid" uuid=modelsuuid
-            delete!(sessionCache, obj["uuid"]) # Invalidate project data in the session cache
-            @debug "MODEL STORE: Deleted SESSION CACHE record by [old] project uuid" uuid=projectUuid
+            #delete!(sessionCache, obj["uuid"]) # Invalidate project data in the session cache
+            #@debug "MODEL STORE: Deleted SESSION CACHE record by [old] project uuid" uuid=projectUuid
         else
             obj["uuid"] = modelsuuid
             obj1 = Mongoc.delete_one(models, obj)
@@ -840,8 +836,8 @@ function storeModelData(projectUuid::UUID, newData::MB)::Result
         newData["user"] = project["user"]
         Mongoc.insert_one(models,newData);
         @debug "MODEL STORE: Stored a record" newData=newData
-        sessionCache[projectUuid |> string] = Result(project, OK, "Cached project")
-        sessionCache[modelsuuid ] = Result(newData, OK, "Cached Model")
+        #sessionCache[projectUuid |> string] = Result(project, OK, "Cached project")
+        #sessionCache[modelsuuid ] = Result(newData, OK, "Cached Model")
         return Result(newData, OK, "Model data updated successfully!")
     end
 end
@@ -886,7 +882,7 @@ route(API*"project/:uuid/setup", method=POST) do
     upd = MB()
     upd["\$set"]=MB("rename" => Mongoc.BSON(trans))
     Mongoc.update_one(projects, obj, upd); # Set column renaming
-    delete!(sessionCache, prj["uuid"]) # Invalidate the cache data
+    #delete!(sessionCache, prj["uuid"]) # Invalidate the cache data
 
     rc = Result(uuid |> string, OK, "Setup accepted")
     rj(rc)
@@ -916,7 +912,7 @@ route(API*"projects/changetag/:op/arg/:arg", method=POST) do
             return rj(prj)
         end
         prj = prjr.value
-        delete!(sessionCache, suuid) # Invalidate the cache
+        #delete!(sessionCache, suuid) # Invalidate the cache
         usersuuid = prj["user"]
         tagsr = getData(uuid, "tagging", UUID(usersuuid)) do o
         end
