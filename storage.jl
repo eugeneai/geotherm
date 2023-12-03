@@ -206,16 +206,22 @@ function getData(okf::Function, uuid::UUID)::Result
     end
 end
 
-function putData(obj::DataDict)
+function putData(errf::Function, obj::DataDict)
     Logging.with_logger(debug_logger) do
         db = ids()
         if !haskey(obj, "uuid")
-            @error "object has no uuid" obj=obj
-            error("object has no uuid")
+            errf(obj)
         end
         uuid = obj["uuid"]::UUID
         db[uuid]=obj
         @debug "Object stored" uuid=uuid
+    end
+end
+
+function putData(obj::DataDict)
+    Logging.with_logger(debug_logger) do obj
+        @error "object has no uuid" obj=obj
+        error("object has no uuid")
     end
 end
 
@@ -243,24 +249,35 @@ function deleteData(obj::DataDict)
 end
 
 
-function getUserData(uuid::UUID, removePassword::Bool=true)::Result
+function getUserData(errf::Function, uuid::UUID, removePassword::Bool=true)::Result
     Logging.with_logger(debug_logger) do
         cache!(uuid) do
-            getData(uuid) do v
+            rc = getData(uuid) do v
                 if removePassword
                     v["password"]="******"
                 end
             end
+            if rc.level >= ERROR
+                errf(rc)
+            end
             @debug "Loaded user data from KyotoCabinet"
+            rc
         end
     end
 end
 
-function getProjectData(uuid::UUID)::Result
-    getData(uuid) do prj
-        if !haskey(prj, "model")
-            prj["model"] = config.defaultModelUUID
+function getProjectData(errf::Function, uuid::UUID)::Result
+    Logging.with_logger(debug_logger) do
+        rc = getData(uuid) do prj
+            if !haskey(prj, "model")
+                prj["model"] = config.defaultModelUUID
+            end
         end
+        if rc.level >= ERROR
+            errf(rc)
+        end
+        @debug "Project data loaded from KyotoCabinet"
+        rc
     end
 end
 
@@ -273,6 +290,7 @@ function getModelData(uuid::UUID)::Result
             rc = getDefaultModel()
             Result(rc.value, rc.level,
                    rc.description * "(model has lost somewhere, reset to the default one)")
+            # errf(rc)
         else
             rc
         end
@@ -483,11 +501,12 @@ end
 route(API*"user/:uuid/project/upload", method=POST) do
     Logging.with_logger(debug_logger) do
         uuid=UUID(payload(:uuid))
-        userData = getUserData(uuid)
-        if userData.level >= ERROR
-            return rj(userData)
+        userData = getUserData(uuid) do rc
+            return rj(rc)
         end
+
         userData = userData.value
+
         if infilespayload(:file)
             httpFile = filespayload(:file)
             name = httpFile |> filename
@@ -545,9 +564,8 @@ route(API*"user/:uuid/update", method=POST) do
         uuid=UUID(payload(:uuid))
         userData=postpayload(:JSON_PAYLOAD)
 
-        userr = getUserData(uuid, false)
-        if userr.level >= ERROR
-            return rj(Result(userr.value, ERROR, "Cannot find user! " * userr.description))
+        userr = getUserData(uuid, false) do obj
+            return rj(Result(obj.value, ERROR, "Cannot find user! " * userr.description))
         end
 
         user = userr.value;
@@ -621,13 +639,11 @@ route(API*"user/authenticate", method=POST) do
             rc = Result(answer, ERROR, "User not found!")
         else
             uuid = aliasDb[key]
-            ud = getUserData(uuid)
-            if ud.level<ERROR
-                @debug "Successful login" alias=alias
-                rc = Result(uuid, OK, "Login into the account is successful!")
-            else
-                rc = ud
+            ud = getUserData(uuid) do rc
+                return rj(rc)
             end
+            @debug "Successful login" alias=alias
+            rc = Result(uuid, OK, "Login into the account is successful!")
         end
         rj(rc)
     end
@@ -636,17 +652,15 @@ end
 route(API*"user/:uuid/projects", method=POST) do
     Logging.with_logger(debug_logger) do
         uuid=UUIDs.UUID(payload(:uuid))
-        rc = getUserData(uuid)
-        if rc.level >= ERROR
+        rc = getUserData(uuid) do rc
             return rj(rc)
         end
 
         user = rc.value;
 
         userProj = config.db.userProj
-        if haskey(userProj, uuid)
-            projs = userProj(uuid)
-        else
+
+        projs = get(userProj, uuid) do
             projs = DataDict("projects" => []::Vector{UUID})
         end
 
@@ -877,9 +891,8 @@ route(API*"project/:uuid/graphs", method=POST) do
     Logging.with_logger(debug_logger) do
         uuid=UUIDs.UUID(payload(:uuid))
 
-        pdr = getProjectData(uuid)
-        if pdr.level >= ERROR
-            return rj(pdr)
+        pdr = getProjectData(uuid) do rc
+            return rj(rc)
         end
 
         prj = pdr.value;
@@ -888,7 +901,6 @@ route(API*"project/:uuid/graphs", method=POST) do
             rc = Result(DataDict("uuid"=>uuid), ERROR, "not found")
             return rj(rc)
         end
-
 
         objs = []
         for (key, fuuid) in figures
@@ -919,8 +931,7 @@ route(API*"project/:uuid/figure/:key", method=GET) do
             return resp
         end
 
-        pdr = getProjectData(uuid)
-        if pdr.level >= ERROR
+        pdr = getProjectData(uuid) do obj
             return fnf()
         end
         prj = pdr.value;
@@ -947,11 +958,10 @@ function storeModelData(projectUuid::UUID, newData::DataDict)::Result
     Logging.with_logger(debug_logger) do
         @debug "storeModelData begin:" projectUuid newData=newData
 
-        pdr = getProjectData(projectUuid)
-        @debug "getProjectData" level=pdr.level
-        if pdr.level >= ERROR
-            return pdr
+        pdr = getProjectData(projectUuid) do obj
+            return obj
         end
+        @debug "getProjectData" level=pdr.level
         project = pdr.value;
 
         modeluuid = project["model"]
@@ -994,9 +1004,8 @@ route(API*"project/:uuid/setup", method=POST) do
         uuid=UUIDs.UUID(payload(:uuid))
         js = postpayload(:JSON_PAYLOAD)
 
-        prjr = getProjectData(uuid)
-        if prjr.level >= ERROR
-            return rj(prjr)
+        prjr = getProjectData(uuid) do obj
+            return rj(obj)
         end
 
         prj = prjr.value
@@ -1022,11 +1031,10 @@ end
 route(API*"project/:uuid/model", method=POST) do
     Logging.with_logger(debug_logger) do
         uuid=UUIDs.UUID(payload(:uuid))
-        prj = getProjectData(uuid)
-
-        if prj.level >= ERROR
-            return rj(prj)
+        prj = getProjectData(uuid) do obj
+            return rj(obj)
         end
+
         rc = getModelData(prj.value["model"])
 
         rj(rc)
@@ -1045,16 +1053,13 @@ route(API*"projects/changetag/:op/arg/:arg", method=POST) do
         for suuid in projects
             uuid = suuid |> UUID
 
-            prjr = getProjectData(uuid)
-            if prjr.level >= ERROR
-                return rj(prj)
+            prjr = getProjectData(uuid) do obj
+                return rj(obj)
             end
             prj = prjr.value
             useruuid = prj["user"]
-            userr = getUserData(uuid)
-
-            if userr.level < ERROR
-                return rj(userr)
+            userr = getUserData(uuid) do obj
+                return rj(obj)
             end
 
             user = userr.value
@@ -1063,44 +1068,30 @@ route(API*"projects/changetag/:op/arg/:arg", method=POST) do
                 if op == "delete"
                     continue
                 else
-                    DataDict("projects"=>DataDict())
+                    DataDict()
                 end
             end
 
-            tags = tagDict["projects"]
-
-            # TODO
-
-            if tagsr.level == NOTFOUND
-                tags = DataDict()
-                tags["uuid"] = uuid
-                tags["user"] = useruuid
-            else
-                tags = tagsr.value
+            tags = get!(tagDict, "projects") do
+                DataDict()
             end
 
-            tag = config.db.tag
+            tagSet = get!(tags, uuid) do
+                Set{String}()
+            end
+
             if op == "add"
-                if tagsr.level == NOTFOUND
-                    tags["tags"] = [arg]
-                else
-                    ts = tags["tags"]
-                    if ! (arg in ts)
-                        push!(ts, arg)
-                    end
-                    tags["tags"]=ts
-                end
+                push!(tagSet, arg)
             elseif op=="delete"
-                ts = tags["tags"]
-                filter!( t-> t!=arg, ts)
-                tags["tags"] = ts
+                setdiff!(tagSet, arg)
             else
                 return rj(Result(op, ERROR, "Unknown operation: " * op))
             end
-            tag[uuid]=tags
+            tags[uuid]=tagSet
             push!(updated, uuid)
+            putData(prj)
         end
-        rj(Result(DataDict("tags" => updated),OK,"Projects tags have updated"))
+        rj(Result(DataDict("tags" => updated), OK, "Projects tags have updated"))
     end
 end
 
