@@ -1,11 +1,8 @@
 # import Mongoc
-import kyotocabinet
+import KyotoCabinet as KC
 import SHA
 using UUIDs
 using Genie, Genie.Requests
-# import GenieSession
-import Genie.Cookies as GC
-# import GenieSession as GS
 using Genie.Renderer.Json
 using Genie.Renderer
 import Genie.Requests as GRQ
@@ -21,35 +18,80 @@ using DataFrames
 import JSON as JS
 using Formatting
 import Logging
+using BSON
+import Base
+using HCGeoTherm
+using HCGeoThermGraphics
+
+# Sending JSON converts UUID into hex string,
+# see JS.lower
+# Receiving JSON does not convert into UUID!
+# But the receiving is performed much less frequently!
+
 
 debug_logger = Logging.ConsoleLogger(stderr, Logging.Debug)
 info_logger = Logging.ConsoleLogger(stderr, Logging.Info)
 default_logger = Logging.global_logger(info_logger)
 
-include("computegterm.jl")
 include("fileLoaders.jl")
 
-MB=Mongoc.BSON
+@enum ResultLevel::Int8 begin
+    OK = 0
+    CACHED = 1
+    INFO = 2
+    DEBUG = 3
+    ERROR = 10
+    NOTFOUND = 11
+    FATAL = 20
+end
+
+# Checking OK - if foo.level < ERROR then ... OK....
+
+struct Result
+    value::Any
+    level::ResultLevel
+    description::String
+end
+
+SU = Union{String, UUIDs.UUID}
+DataDict = Dict{SU, Any}
+sessionCache = Dict{SU, Result}()
 
 mutable struct Config
     debug::Bool
     salt::String
-    systemUUID::Any
-    client::Any
+    systemUUID::UUID
+    dbLocation::String # A directory with data
     dbName::String
+    indexType::String # KyotoCabinet file extension type, e.g., kch.
     db::Any
     noreply::String
     server::String
-    defaultModelUUID::Any
-    demoDataUUID::Any
+    defaultModelUUID::UUID
+    demoDataUUID::UUID
 end
 
-config::Config = Config( false
+mutable struct DD  # A database KyotoCabinet Dictionary
+    name::String
+    index::String
+    db::Any
+end
+
+mutable struct Database
+    id :: DD        # UUID -> Struct, Each struct MUST have "uuid":UUID(....) field
+    alias :: DD     # String (User or project Alias) -> UUID
+end
+
+dbId = DD("ids", "kch", nothing)
+dbAlias = DD("aliases", "kch", nothing)
+
+config::Config = Config( false # Debug
                          , "salt9078563412"
-                         , UUID("7a2b81c9-f1fa-41de-880d-9635f4741511")
-                         , 0
+                         , UUID("7a2b81c9-f1fa-41de-880d-9635f4741511") # systemUUID
+                         , "./storage"
                          , "geotherm"
-                         , 0
+                         , "kch"
+                         , nothing  # db
                          , "UVh5Qj1lPiUyYkpyNmhUJQo=" |> base64decode |> String |> strip
                          , "https://gtherm.ru"
                          , UUID("cdda3a47-e5bb-570a-950d-f9c191e5dfbb") # Default model
@@ -63,104 +105,174 @@ Genie.config.cors_headers["Access-Control-Allow-Headers"] = "X-Requested-With,co
 Genie.config.cors_headers["Access-Control-Allow-Methods"] = "GET,POST,PUT,DELETE,OPTIONS"
 Genie.config.cors_allowed_origins = ["*"]
 
-@enum ResultLevel::Int8 begin
-    OK = 0
-    CACHED = 1
-    INFO = 2
-    DEBUG = 3
-    ERROR = 10
-    NOTFOUND = 11
-    FATAL = 20
-end
-
-struct Result
-    value::Any
-    level::ResultLevel
-    description::String
-end
-
-sessionCache = IdDict{String, Result}()
+JS.lower(x::UUIDs.UUID) = x |> string
 
 function cache!(f::Function, uuid::UUID)::Result
-    suuid = uuid |> string
-    obj = get(sessionCache, suuid, nothing)
-    if isnothing(obj)
-        result = f()
-        if result.level < ERROR
-            sessionCache[suuid] = result
+    Logging.with_logger(debug_logger) do
+        obj = get(sessionCache, uuid, nothing)
+        if isnothing(obj)
+            result = f()
+            if result.level < ERROR
+                sessionCache[uuid] = result
+            end
+            return result
+        else
+            @debug "Getting from the cache"
+            descr = obj.description
+            nobj = Result(obj.value, CACHED, descr * "(cached)")
+            return nobj
         end
-        return result
-    else
-        @debug "Getting from the cache"
-        nobj = Result(obj.value, CACHED, "cached")
-        return nobj
     end
+end
+
+function Base.convert(t::Type{KC.Bytes}, uuid::UUID)::KC.Bytes
+    reinterpret(UInt8, [uuid.value]) |> KC.Bytes
+end
+
+function Base.convert(t::Type{UUID}, v::KC.Bytes)::UUID
+    vs = reinterpret(UInt128, v) |> Vector
+    UUID(vs[0])
+end
+
+function Base.convert(t::Type{KC.Bytes}, d::DataDict)::KC.Bytes
+    io = IOBuffer()
+    BSON.bson(io, d)
+    take!(io)
+end
+
+function Base.convert(t::Type{DataDict}, v::KC.Bytes)::DataDict
+    io = IOBuffer(v)
+    BSON.load(io)::t
+end
+
+function _connDb(f::Function, dd::DD)
+    db = f(DD)
+    try
+        dbFullPath = config.dbLocation * "/" * config.dbName * "-" * DD.name * "." * DD.indexType
+        KC.open(db, dbFullPath
+                  , KC.KCOWRITER | KC.KCOCREATE)
+        @info ("Database mapping '" * dbFullPath * "' opened!")
+    catch
+        @error ("Cannot connect KyotoCabinet database mapping! Name:" * dbFullPath)
+        exit()
+    end
+    dd.db=db
+    return db
 end
 
 function connectDb()
-    mongoClient = Mongoc.Client("mongodb://localhost:27017")
-    try
-        println("Check connection:",Mongoc.ping(mongoClient))
-    catch
-        print("\nERROR: Cannot connect mongo database!\n")
-        exit()
+    Logging.with_logger(debug_logger) do
+        _connDb(dbId) do dd
+            db=KC.Db{UUID, DataDict}()
+            @debug "Created id database"
+            if !haskey(db, config.defaultModelUUID)
+                @info "Add default model!"
+            end
+            db
+        end
+        _connDb(dbAlias) do dd
+            KC.Db{String, UUID}()
+            @debug "Created alias database"
+        end
+        config.db = Database(dbId, dbAlias)
+        return config.db
     end
-    config.client = mongoClient
-    return mongoClient
 end
 
-function getData(okf::Function, uuid::UUID, collection::String,
-                 useruuid::Union{UUID,Nothing}=nothing)::Result
-    obj = Mongoc.BSON()
-    suuid = uuid |> string
-    obj["uuid"] = suuid
-    if ! isnothing(useruuid)
-        obj["user"] = useruuid |> string
-    end
-    db = config.client[config.dbName]
-    coll = db[collection]
-    obj = Mongoc.find_one(coll, obj)
-    if isnothing(obj)
-        answer = MB()
-        answer["uuid"]=suuid
-        return Result(answer, NOTFOUND, collection * " object not found uuid=" * suuid)
-    else
-        obj["_id"]=suuid
-        okf(obj)
-        return Result(obj, OK, "found")
+UN = Union{UUID,Nothing}
+
+function ids()
+    config.db.id
+end
+
+function aliases()
+    config.db.alias
+end
+
+function getData(okf::Function, uuid::UUID)::Result
+    Logging.with_logger(debug_logger) do
+        db = ids()
+        try
+            obj = db[uuid]
+            okf(obj)
+            @debug "Object loaded" uuid=uuid
+            return Result(obj, OK, "found")
+        catch
+            answer = DataDict()
+            answer["uuid"]=uuid
+            @error "Object not found" uuid=uuid
+            return Result(answer, NOTFOUND, "object not found")
+        end
     end
 end
+
+function putData(obj::DataDict)
+    Logging.with_logger(debug_logger) do
+        db = ids()
+        if !haskey(obj, "uuid")
+            @error "object has no uuid" obj=obj
+            error("object has no uuid")
+        end
+        uuid = obj["uuid"]::UUID
+        db[uuid]=obj
+        @debug "Object stored" uuid=uuid
+    end
+end
+
+function deleteData(uuid::UUID)
+    Logging.with_logger(debug_logger) do
+        if !haskey(ids(), uuid)
+            @warn "Object not found" uuid=uuid
+        else
+            delete!(ids(), uuid)
+            @debug "Removed object by uuid" uuid=uuid
+        end
+    end
+end
+
+function deleteData(obj::DataDict)
+    Logging.with_logger(debug_logger) do
+        if !haskey(obj["uuid"])
+            @error "object has no uuid" obj=obj
+            error("object has no uuid")
+        end
+        uuid = obj["uuid"]::UUID
+        deleteData(uuid)
+        @debug "Removed object" uuid=uuid
+    end
+end
+
 
 function getUserData(uuid::UUID, removePassword::Bool=true)::Result
-    cache!(uuid) do
-        println("Getting from Mongo")
-        getData(uuid, "users") do v
-            if removePassword
-                v["password"]="******"
+    Logging.with_logger(debug_logger) do
+        cache!(uuid) do
+            getData(uuid) do v
+                if removePassword
+                    v["password"]="******"
+                end
             end
+            @debug "Loaded user data from KyotoCabinet"
         end
     end
 end
 
 function getProjectData(uuid::UUID)::Result
-    getData(uuid, "projects") do prj
+    getData(uuid) do prj
         if !haskey(prj, "model")
-            prj["model"] = config.defaultModelUUID |> string
+            prj["model"] = config.defaultModelUUID
         end
     end
 end
-
 
 function getModelData(uuid::UUID)::Result
     if uuid == config.defaultModelUUID
         getDefaultModel()
     else
-        rc = getData(uuid, "models") do mdl
-        end
+        rc = getData(uuid) do mdl end
         if rc.level >= ERROR
             rc = getDefaultModel()
             Result(rc.value, rc.level,
-                   rc.description * "(model lost, reset to the default)")
+                   rc.description * "(model has lost somewhere, reset to the default one)")
         else
             rc
         end
@@ -168,7 +280,7 @@ function getModelData(uuid::UUID)::Result
 end
 
 function getDefaultModel()
-    mdl = MB()
+    mdl = DataDict()
     mdl["q0"] = "30:1:40"
     mdl["D"] = "16"
     mdl["Zbot"] = "[16,23,39,300]"
@@ -178,21 +290,18 @@ function getDefaultModel()
     mdl["H"] = "[0,0.4,0.4,0.02]"
     mdl["iref"] = "3"
     mdl["optimize"] = "false"
-    mdl["uuid"] = config.defaultModelUUID |> string
-    # println("---------------- HERE! ")
-    # mdl["optimize"] = "true"
-    # NOTE: There is no user reference!
+    mdl["uuid"] = config.defaultModelUUID
     return Result(mdl, OK, "Default model")
 end
 
-function sendEmailApproval(user::MB)
+function sendEmailApproval(user::DataDict)
     opt = SendOptions(
         isSSL = true,
         username = "noreply@irnok.net",
         passwd = config.noreply)
     #Provide the message body as RFC5322 within an IO
 
-    confurl=config.server*API*"user/$(user["uuid"])/emailConfirm"
+    confurl=config.server * API * "user/$(user["uuid"])/emailConfirm"
 
     n = Dates.now()
     ns = Dates.format(n, "e, d u Y H:M:S +0800\r\n", locale="english")
@@ -226,7 +335,7 @@ function sendEmailApproval(user::MB)
     rcpt = ["<noreply@irnok.net>"]
     from = "<$(user["email"])>"
     resp = send(url, rcpt, from, body, opt)
-    println("Email RC:", resp)
+    @info ("Email RC:", resp)
 end
 
 function encryptPassword(password::String)::String
@@ -235,379 +344,397 @@ end
 
 function addUser(alias::String, name::String, org::String,
                  password::String, email::String) :: Result
-    client = config.client
-    session = client
-    db = session[config.dbName]
-    coll = db["users"]
-    user = Mongoc.BSON()
-    user["alias"] = alias
-    prev = Mongoc.find_one(coll, user)
-    if isnothing(prev)
+    Logging.with_logger(debug_logger) do
+        alias = aliases()
+
+        key="USER-" * alias
+
+        if haskey(alias, key)
+            uuid = alias[key]
+            @warn "User not found" alias=alias
+            return Result(
+                DataDict("uuid" => uuid) ,
+                ERROR, "User with this account name exists. Choose another one.")
+        end
+
+        user = DataDict()
+        user["alias"] = alias
         user["name"] = name
         user["org"] = org
         user["password"] = password |> encryptPassword
         user["email"] = email
         user["emailChecked"] = false
-        uuid = uuid4()
-        suuid = string(uuid)
-        user["uuid"] = suuid
-        push!(coll, user)
+        uuid = uuid1()
+        user["uuid"] = uuid
+        putData(user)
+        alias[key]=uuid
         sendEmailApproval(user)
         rc = Result(user, OK, "user added")
-        sessionCache[suuid] = rc
+        sessionCache[uuid] = rc
         return rc
-    else
-        println(prev["uuid"])
-        return Result(
-            prev["uuid"] |> UUID ,
-            ERROR, "User with this account name exists. Choose another one.")
     end
 end
 
 function logoutUser(uuid::UUID)::Result
-    suuid = uuid |> string;
-    # First, remove objects connected to the user
-    if haskey(sessionCache, suuid)
-        for (k,v) in pairs(sessionCache)
-            v = v.value
-            if haskey(v, "user") && v["user"] == suuid
-                # println(v)  # TODO remove it
-                delete!(sessionCache, k)
+    Logging.with_logger(debug_logger) do
+        if haskey(sessionCache, uuid)
+            for (k,v) in pairs(sessionCache)
+                v = v.value
+                if haskey(v, "user") && v["user"] == uuid # TODO: Check UUID or it's a String
+                    @debug "Removing user owned object from sessionCache" k=k
+                    delete!(sessionCache, k)
+                end
             end
+            @debug "Removing user sessionCache" uuid=uuid
+            delete!(sessionCache, uuid)
+            Result(DataDict("uuid"=>uuid), OK, "user is logged out")
+        else
+            Result(DataDict("uuid"=>uuid), ERROR, "user was not logged out")
         end
-        delete!(sessionCache, suuid)
-        Result(suuid, OK, "user is logged out")
-    else
-        Result(suuid, ERROR, "user was not logged out")
     end
 end
 
-function storeDataFrame(df, userData, projectName)::Union{UUID,Nothing}
-    userSuuid = userData["uuid"]
-    db = config.client[config.dbName]
+function storeDataFrame(df, userData, projectName, uuid::UN=nothing)::UN
+    Logging.with_logger(debug_logger) do
+        useruuid = userData["uuid"]
 
-    obj = Mongoc.BSON()
-    obj["user"] = userSuuid
-    obj["name"] = projectName
-    coll = db["projects"]
-    obj = Mongoc.find_one(coll, obj)
+        key = "PROJECT-" * projectName
 
-    if isnothing(obj)
-        uuid = uuid4()
-        suuid = uuid |> string
+        alias = aliases()
 
-        r=MB()
-        r["uuid"]=suuid
-        r["name"]=projectName
-        r["user"]=userSuuid
-        r["data"]=MB(JS.json(df))
-        r["model"] = config.defaultModelUUID |> string
-
-        client = config.client
-        session = client
-        db = session[config.dbName]
-        coll = db["projects"]
-        # println(r)
-        push!(coll, r)
-        uuid
-    else
-        nothing
+        if !haskey(alias, key)
+            @debug "No frame name found" key=key
+            if isnothing(uuid)
+                uuid = uuid1()
+            end
+            r=DataDict()
+            r["uuid"]=uuid
+            r["name"]=projectName
+            r["user"]=useruuid
+            r["data"]=df# JS.json(df)
+            r["model"] = config.defaultModelUUID
+            putData(r)
+            @debug "Stored new project" uuid=uuid key=key
+            alias[key] = uuid
+            uuid
+        else
+            nothing
+        end
     end
 end
 
 function storeDataFrames(dfs, userData, projectName)::Vector{UUID}
-    uuids = Vector{UUID}()
-    for i in eachindex(dfs)
-        (dfname, df) = dfs[i]
-        uuid = storeDataFrame(df, userData, dfname)
-        if ! isnothing(uuid)
-            push!(uuids, uuid)
+    Logging.with_logger(debug_logger) do
+        uuids = Vector{UUID}()
+        for i in eachindex(dfs)
+            (dfname, df) = dfs[i]
+            uuid = storeDataFrame(df, userData, dfname)
+            if !isnothing(uuid)
+                @debug "Added project" uuid=uuid name=dfname
+                push!(uuids, uuid)
+            end
         end
+        uuids
     end
-    uuids
 end
-
-function test()
-    println("CFG:", config.client, "\n")
-    u = addUser("eugeneai","Evgeny Cherkashin", "ISDCT SB RAS", "passW0rd", "eugeneai@irnok.net")
-    println(u)
-    println(getUserData(u.value))
-end
-
 
 function rj(answer::Result)
-    l = answer.level
-    v = answer.value
-    m = answer.description
-    # d = Dict{String, Any}([("value":v), ("description":d)])
-    d = Dict{String, Any}([("description", m)])
-    d["value"] = v
-    d["level"] = UInt8(l)
-    d["rcdescr"] =
-        if l == OK
-            "OK"
-        elseif l == ERROR
-            "ERROR"
-        elseif l == INFO
-            "INFO"
-        elseif l == FATAL
-            "FATAL"
-        elseif l == DEBUG
-            "DEBUG"
-        elseif l == CACHED
-            "CACHED"
+    Logging.with_logger(debug_logger) do
+        l = answer.level
+        v = answer.value
+        m = answer.description
+
+        d = DataDict([("description", m)])
+        d["value"] = v
+        d["level"] = convert(UInt8, l)
+        d["rcdescr"] =
+            if l == OK
+                "OK"
+            elseif l == ERROR
+                "ERROR"
+            elseif l == INFO
+                "INFO"
+            elseif l == FATAL
+                "FATAL"
+            elseif l == DEBUG
+                "DEBUG"
+            elseif l == CACHED
+                "CACHED"
+            end
+        @debug "INFO:RETURNING:" json=json(d) l=l
+        if l>= ERROR
+            @warn "ERROR:RETURNING:" json=json(d) l=l
         end
-    if config.debug
-        println("INFO:RETURNING:", json(d), l)
+        json(d)
     end
-    if l>= ERROR
-        println("ERROR:RETURNING:", json(d), l)
-    end
-    json(d)
 end
 
 API="/api/1.0/"
 
 route(API*"user/:uuid/data", method=POST) do
-    uuid=UUID(payload(:uuid))
-    rc = getUserData(uuid)
-    println(rc)
-    rj(rc)
+    Logging.with_logger(debug_logger) do
+        uuid=UUID(payload(:uuid))
+        rc = getUserData(uuid)
+        @debug "user/..../data" uuid=uuid rc=rc
+        rj(rc)
+    end
 end
 
 route(API*"user/:uuid/project/upload", method=POST) do
-    uuid=UUID(payload(:uuid))
-    userData = getUserData(uuid)
-    if userData.level >= ERROR
-        return rj(userData)
-    end
-    userData = userData.value
-    if infilespayload(:file)
-        # println("There is a file")
-        httpFile = filespayload(:file)
-        name = httpFile |> filename
-        mime = httpFile.mime
-        data = httpFile.data
-        projectName,_ext = FS.splitext(name)
-        # dfs = (Project-name, DataFrame)
-        if mime == "text/csv"
-            dfs = loadCsv(httpFile, projectName)
-        elseif mime == "text/tsv"
-            dfs = loadTsv(httpFile, projectName)
-        elseif mime ==
-            "application/vnd.openxmlformats-officedocument.spreadsheetml.sheet"
-            dfs = loadXlsx(httpFile, projectName)
-        else
-            dfs = nothing
+    Logging.with_logger(debug_logger) do
+        uuid=UUID(payload(:uuid))
+        userData = getUserData(uuid)
+        if userData.level >= ERROR
+            return rj(userData)
         end
-
-        if isnothing(dfs) || isempty(dfs)
-            rc = Result(mime, ERROR, "File type " * mime * " cannot be loaded!")
-        else
-            uuids = storeDataFrames(dfs, userData, projectName)
-            if length(uuids) > 0
-                rc = Result(uuids, OK, "File data has successfully uploaded! "
-                            * format("Added {} record(s).", length(uuids)))
+        userData = userData.value
+        if infilespayload(:file)
+            httpFile = filespayload(:file)
+            name = httpFile |> filename
+            mime = httpFile.mime
+            data = httpFile.data
+            @debug "A file received" name=name mime=mime
+            projectName,_ext = FS.splitext(name)
+            # dfs = (Project-name, DataFrame)
+            if mime == "text/csv"
+                dfs = loadCsv(httpFile, projectName)
+                @debug "Loaded CSV" name=projectName
+            elseif mime == "text/tsv"
+                dfs = loadTsv(httpFile, projectName)
+                @debug "Loaded TSV" name=projectName
+            elseif mime ==
+                "application/vnd.openxmlformats-officedocument.spreadsheetml.sheet"
+                dfs = loadXlsx(httpFile, projectName)
+                @debug "Loaded XLSX" name=projectName
             else
-                rc = Result(uuids, INFO, "No new data added! It seems You're already done that.")
+                dfs = nothing
             end
+
+            if isnothing(dfs) || isempty(dfs)
+                @warn "Did not load anything" mime=mime
+                rc = Result(mime, ERROR, "File type " * mime * " cannot be loaded!")
+            else
+                uuids = storeDataFrames(dfs, userData, projectName)
+                if length(uuids) > 0
+                    rc = Result(DataDict("uuids"=>uuids),
+                                OK, "File data has successfully uploaded! "
+                                * format("Added {} record(s).", length(uuids)))
+                else
+                    @debug "No new data found"
+                    rc = Result(uuids, INFO, "No new data added! It seems You're already done that.")
+                end
+            end
+        else
+            @warn "Incorrect format of upload data"
+            rc = Result("", ERROR, "The uploads had incorrect format! Contact developers!")
         end
-    else
-        rc = Result("", ERROR, "Upload had incorrect format! Contact developers!")
+        rj(rc)
     end
-    rj(rc)
 end
 
 route(API*"user/:uuid/logout", method=POST) do
-    uuid=UUID(payload(:uuid))
-    rc = logoutUser(uuid)
-    rj(rc)
+    Logging.with_logger(debug_logger) do
+        uuid=UUID(payload(:uuid))
+        rc = logoutUser(uuid)
+        rj(rc)
+    end
 end
 
 route(API*"user/:uuid/update", method=POST) do
-    uuid=UUID(payload(:uuid))
-    userData=postpayload(:JSON_PAYLOAD)
-    suuid = uuid |> string
-    userr = getUserData(uuid, false)
-    if userr.level >= ERROR
-        return rj(Result(userr.value, ERROR, "Cannot find user! " * userr.description))
-    end
+    Logging.with_logger(debug_logger) do
+        uuid=UUID(payload(:uuid))
+        userData=postpayload(:JSON_PAYLOAD)
 
-    user = userr.value;
-
-    tryPassword = userData["activePassword"]
-    tryPassword = tryPassword |> strip
-    passwordChange = false
-    if ! isempty(tryPassword)
-        tryPassword = tryPassword |> encryptPassword
-        if tryPassword != user["password"]
-            return rj(Result(MB("uuid" => suuid, ERROR, "Wrong current password!")))
+        userr = getUserData(uuid, false)
+        if userr.level >= ERROR
+            return rj(Result(userr.value, ERROR, "Cannot find user! " * userr.description))
         end
-        passwordChange = true
-    end
 
-    obj = MB("uuid" => suuid)
-    delete!(userData, "_id")
-    updobj = MB(userData)
-    upd = MB("\$set" => updobj)
-    if passwordChange
-        userData["password"] = userData["password"] |> encryptPassword
-    else
-        delete!(userData, "password")
+        user = userr.value;
+
+        tryPassword = userData["activePassword"]
+        tryPassword = tryPassword |> strip
+        passwordChange = false
+        if ! isempty(tryPassword)
+            tryPassword = tryPassword |> encryptPassword
+            if tryPassword != user["password"]
+                return rj(Result(IdDict("uuid" => suuid), ERROR, "Wrong current password!"))
+            end
+            passwordChange = true
+            @debug "Possibly password change"
+        end
+
+        if passwordChange
+            userData["password"] = userData["password"] |> encryptPassword
+        else
+            userData["password"] = user["password"]
+        end
+        delete!(userData, "activePassword")
+        if user["email"] != userData["email"]
+            userData["emailChecked"] = false
+        end
+
+        # userData["uuid"]=uuid
+        merge!(user, userData)  # we have to conserve, e.g., tags
+        putData(userData)
+        delete!(sessionCache, uuid)
+        rj(Result(DataDict("uuid" => uuid), OK, "User profile has updated!"))
     end
-    delete!(userData, "activePassword")
-    if user["email"] != userData["email"]
-        user["emailChecked"] = false
-    end
-    db = config.client[config.dbName]
-    users = db["users"]
-    # println(obj,"\n\n",upd)
-    Mongoc.update_one(users, obj, upd)
-    delete!(sessionCache, suuid)
-    rj(Result(MB("uuid" => suuid), OK, "User profile has updated!"))
 end
 
 route(API*"user/register", method=POST) do
-    # rc = logoutUser(uuid)
-    # req=GRQ.request()
-    # println(postpayload())
-    user=postpayload(:JSON_PAYLOAD)
-    alias=get(user, "alias", nothing)
-    name=get(user, "name", nothing)
-    org=get(user, "org", "")
-    password=get(user, "password", nothing)
-    email=get(user, "email", nothing)
-
-    # rc=Result(alias, ERROR, "test Error")
-    rc = addUser(alias, name, org, password, email)
-    rj(rc)
+    Logging.with_logger(debug_logger) do
+        user=postpayload(:JSON_PAYLOAD)
+        alias=get(user, "alias", nothing)
+        name=get(user, "name", nothing)
+        org=get(user, "org", "")
+        password=get(user, "password", nothing)
+        email=get(user, "email", nothing)
+        @info "Try to add user" alias=alias email=email
+        rc = addUser(alias, name, org, password, email)
+        rj(rc)
+    end
 end
 
 route(API*"user/authenticate", method=POST) do
-    println(postpayload())
-    creds = postpayload(:JSON_PAYLOAD)
-    alias=get(creds, "alias", "")
-    password=get(creds, "password", "") |> encryptPassword
-    if isnothing(alias)
-        return Result("", ERROR, "No user name supplied.")
+    Logging.with_logger(debug_logger) do
+        creds = postpayload(:JSON_PAYLOAD)
+        alias = get(creds, "alias") do
+            return rj(Result("", ERROR, "No user name supplied."))
+        end
+
+        password = get(creds, "password", "")
+        password = password |> encryptPassword
+
+        aliasDb = aliases()
+
+        alias = strip(alias)
+        key = "USER-" * alias
+        if length(alias) == 0
+            answer = DataDict()
+            answer["alias"]=alias
+            rc = Result(answer, ERROR, "Empty user name !")
+        elseif !haskey(aliasDb, key)
+            answer = DataDict()
+            answer["alias"]=alias
+            @debug "Authentication: User not found" alias=alias
+            rc = Result(answer, ERROR, "User not found!")
+        else
+            uuid = aliasDb[key]
+            ud = getUserData(uuid)
+            if ud.level<ERROR
+                @debug "Successful login" alias=alias
+                rc = Result(uuid, OK, "Login into the account is successful!")
+            else
+                rc = ud
+            end
+        end
+        rj(rc)
     end
-    obj = Mongoc.BSON()
-    obj["alias"] = alias
-    db = config.client[config.dbName]
-    coll = db["users"]
-    # println("OBJ:", obj)
-    obj = Mongoc.find_one(coll, obj)
-    if isnothing(obj)
-        answer = MB()
-        answer["alias"]=alias
-        rc = Result(answer, ERROR, "User not found!")
-    else
-        rc = Result(string(obj["uuid"]), OK, "Login into the account is successful!")
-    end
-    rj(rc)
 end
 
-
 route(API*"user/:uuid/projects", method=POST) do
-    uuid=UUIDs.UUID(payload(:uuid))
-    rc = getUserData(uuid)
-    if rc.level >= ERROR
-        return rj(rc)
-    end
+    Logging.with_logger(debug_logger) do
+        uuid=UUIDs.UUID(payload(:uuid))
+        rc = getUserData(uuid)
+        if rc.level >= ERROR
+            return rj(rc)
+        end
 
-    user = rc.value;
+        user = rc.value;
 
-    usersuuid = uuid |> string
-
-    q = MB("user" => usersuuid)
-    qdemo = MB("uuid" => string(config.demoDataUUID))
-    lim = MB("user" => 1, "uuid" => 1, "name" => 1, "model" => 1, "data" => 0)
-
-
-    client = config.client
-    session = client
-    db = session[config.dbName]
-    coll = db["projects"]
-
-    demoFound = false
-    answer :: Vector{MB}=[];
-
-    function canonify(a::Mongoc.BSON)::Mongoc.BSON
-        row = MB()
-        if ! haskey(a, "model")
-            row["model"] = config.defaultModelUUID |> string
+        userProj = config.db.userProj
+        if haskey(userProj, uuid)
+            projs = userProj(uuid)
         else
+            projs = DataDict("projects" => []::Vector{UUID})
+        end
+
+        demoFound = false
+        answer :: Vector{DataDict}=[];
+
+        function canonify(a::DataDict)::DataDict
+            row = DataDict()
+            if ! haskey(a, "model")
+                row["model"] = config.defaultModelUUID
+            else
+                row["model"] = a["model"]
+            end
+
+            row["name"] = a["name"]
             row["model"] = a["model"]
+            projUuid = row["uuid"] = a["uuid"]
+            row["user"] = a["user"]
+            uuuid = a["user"]
+            tag = config.db.tag
+            if haskey(tag, projUuid)
+                tagD = tag[projUuid]
+                projTags = tagD["tags"]
+            else
+                projTags = []::Vector{UUID}
+            end
+            row["tags"] = projTags
+            row
         end
 
-        row["name"] = a["name"]
-        row["model"] = a["model"]
-        row["uuid"] = a["uuid"]
-        row["user"] = a["user"]
-        puuid = a["uuid"] |> UUID
-        usuuid = a["user"]
-        archivedr = getData(puuid, "tagging", UUID(usuuid)) do o
-        end
-        if archivedr.level == NOTFOUND
-            row["tags"] = []
-        else
-            row["tags"] = archivedr.value["tags"]
-        end
-        # print(row)
-        row
-    end
+        projects = projs["projects"]
 
-    for a in Mongoc.find(coll, q) # must be done once
-        row = canonify(a)
-        if config.demoDataUUID == UUID(a["uuid"])
-            demoFound = true
-            tags = row["tags"]
-            push!(tags, "demo")
-            row["tags"] = tags
-        end
-        md = getModelData(UUID(row["model"]))
-        if md.level >= ERROR
-            return rj(md)
-        end
-        v = md.value
-        row["modelData"] = v
-        push!(answer, row)
-    end
-
-    if !demoFound
-        for a in Mongoc.find(coll, qdemo) # must be done once
+        for a in projects # must be done once
             row = canonify(a)
+            if config.demoDataUUID == UUID(a["uuid"])
+                demoFound = true
+                tags = row["tags"]
+                push!(tags, "demo")
+                row["tags"] = tags
+            end
             md = getModelData(UUID(row["model"]))
             if md.level >= ERROR
                 return rj(md)
             end
             v = md.value
             row["modelData"] = v
-            row["name"] = "(DEMO)"*row["name"]
-            row["archived"] = false
-            tags = row["tags"]
-            push!(tags, "demo")
-            row["tags"] = tags
             push!(answer, row)
         end
-    end
 
-    rc = Result(answer, OK, "Project data, possibly empty.")
-    rj(rc)
+        # if !demoFound
+        #     for a in Mongoc.find(coll, qdemo) # must be done once
+        #         row = canonify(a)
+        #         md = getModelData(UUID(row["model"]))
+        #         if md.level >= ERROR
+        #             return rj(md)
+        #         end
+        #         v = md.value
+        #         row["modelData"] = v
+        #         row["name"] = "(DEMO)"*row["name"]
+        #         row["archived"] = false
+        #         tags = row["tags"]
+        #         push!(tags, "demo")
+        #         row["tags"] = tags
+        #         push!(answer, row)
+        #     end
+        # end
+
+        rc = Result(answer, OK, "Project data, possibly empty.")
+        rj(rc)
+    end
 end
 
 route(API*"project/:uuid/dataframe", method=POST) do
-    uuid=UUIDs.UUID(payload(:uuid))
-    rc = getProjectData(uuid)
-    rj(rc)
+    Logging.with_logger(debug_logger) do
+        uuid=UUIDs.UUID(payload(:uuid))
+        rc = getProjectData(uuid)
+        rj(rc)
+    end
 end
 
 route(API*"test", method=POST) do
-    js = postpayload(:JSON_PAYLOAD)
-    # println(js)
-    uuid=js["uuid"]
-    rc=Result(uuid, OK, "Server functioning")
-    rj(rc)
+    Logging.with_logger(debug_logger) do
+        js = postpayload(:JSON_PAYLOAD)
+        uuid=js["uuid"]
+        @debug "Connection test" uuid=uuid
+        rc=Result(uuid, OK, "Server functioning")
+        rj(rc)
+    end
 end
 
 function ep(s::String)::Any
@@ -623,177 +750,200 @@ function rmHeader(svg::String)::String
     join(lines[2:end],"\n")
 end
 
+function removeFigs!(prj::DataDict, updatePrj=true)
+    Logging.with_logger(debug_logger) do
 
-function removeFigs(prj::Mongoc.BSON)
-    m = prj
-    obj = Mongoc.BSON()
-    println(m)
-    obj["project"] = m["uuid"]
-    db = config.client[config.dbName]
-    coll = db["figures"]
-    obj = Mongoc.delete_many(coll, obj)
+        @debug "Removing figures" prj=prj
+        figures = prj["figures"]
+
+        for (key, uuid) in figures
+            deleteData(uuid)
+        end
+
+        delete!(prj, "figures")
+        if updatePrj
+            putData(prj)
+        end
+    end
 end
 
-function saveFig(prj::Mongoc.BSON, svg::String, key::String)
-    m = prj
-    obj = Mongoc.BSON()
-    obj["project"] = m["uuid"]
-    obj["user"] = m["user"]
-    obj["uuid"] = uuid4() |> string
-    obj["figure"] = svg
-    obj["key"] = key
-    db = config.client[config.dbName]
-    coll = db["figures"]
-    obj = Mongoc.insert_one(coll, obj)
+function saveFig!(prj::DataDict, svg::String, key::String)
+    Logging.with_logger(debug_logger) do
+        m = prj
+        obj = DataDict()
+        obj["project"] = m["uuid"]
+        obj["user"] = m["user"]
+        figureuuid = uuid1()
+        obj["uuid"] = figureuuid
+        obj["figure"] = svg
+        obj["key"] = key
+        putData(obj)
+
+        figures = get!(prj, "figures") do
+            DataDict()
+        end
+
+        figures[key] = figureuuid
+        prj["figures"] = figures
+        # We do not store changes now....
+    end
 end
 
 route(API*"project/:uuid/calculate", method=POST) do
-    uuid=UUIDs.UUID(payload(:uuid))
+    Logging.with_logger(debug_logger) do
+        uuid=UUIDs.UUID(payload(:uuid))
 
-    pdr = getProjectData(uuid)
-    if pdr.level >= ERROR
-        return rj(pdf)
-    end
-
-    prj = pdr.value
-
-    mr = getModelData(UUID(prj["model"]))
-    if mr.level >= ERROR
-        return rj(mr)
-    end
-
-    m = mr.value
-
-    # println(m)
-
-    optimize =  m["optimize"]
-
-    if typeof(optimize) == String
-        optimize = optimize |> ep
-    end
-
-    println("Optimize:", optimize, " <- ", m["optimize"])
-    # optimize = true
-
-    ini = GTInit(m["q0"] |> ep
-                 , m["D"] |> ep
-                 , m["Zbot"] |> ep
-                 , m["Zmax"] |> ep
-                 , m["Dz"] |> ep
-                 , m["P"] |> ep
-                 , m["H"] |> ep
-                 , m["iref"] |> ep
-                 , optimize
-                 )
-
-    df = DataFrame(prj["data"])
-    if haskey(prj, "rename")
-        ren = prj["rename"]
-        dfnew :: IdDict{String,Any} = IdDict()
-        for (k,v) in ren
-            if v=="ignored"
-                continue
-            end
-            dfnew[v] = df[:, k]
+        pdr = getProjectData(uuid)
+        if pdr.level >= ERROR
+            return rj(pdf)
         end
-        df = DataFrame(dfnew)
-        df = canonifyRenamedDF(df)
-    else
-        df = canonifyDF(df) # Try calculate as is
+
+        prj = pdr.value
+
+        mr = getModelData(UUID(prj["model"]))
+        if mr.level >= ERROR
+            return rj(mr)
+        end
+
+        m = mr.value
+
+        optimize =  m["optimize"]
+
+        if typeof(optimize) == String
+            optimize = optimize |> ep
+        end
+
+        @info "Optimize flag"  optimize=optimize
+
+        ini = GTInit(m["q0"] |> ep
+                     , m["D"] |> ep
+                     , m["Zbot"] |> ep
+                     , m["Zmax"] |> ep
+                     , m["Dz"] |> ep
+                     , m["P"] |> ep
+                     , m["H"] |> ep
+                     , m["iref"] |> ep
+                     , optimize
+                     )
+
+        df = DataFrame(prj["data"])
+        if haskey(prj, "rename")
+            ren = prj["rename"]
+            dfnew = DataDict()
+            for (k,v) in ren
+                if v=="ignored"
+                    continue
+                end
+                dfnew[v] = df[:, k]
+            end
+            df = DataFrame(dfnew)
+            df = canonifyRenamedDF(df)
+        else
+            df = canonifyDF(df) # Try calculate as is
+        end
+
+        @debug "Data frame" df=df
+
+        gtRes = computeGeotherm(ini, df)
+
+        figIO = IOBuffer()
+        figChiIO = IOBuffer()
+        figOptIO = IOBuffer()
+
+        gtOptRes = plot(gtRes, "", figIO, figChiIO, figOptIO)
+
+        fig = figIO |> take! |> String
+        if optimize
+            figChi = figChiIO |> take! |> String
+            figOpt = figOptIO |> take! |> String
+        end
+
+        removeFigs!(prj, updatePrj=false)
+        saveFig!(prj, fig, "geotherms")
+        if optimize
+            saveFig!(prj, figChi, "chisquare")
+            saveFig!(prj, figOpt, "optimized")
+        end
+        # prj collects new figures, old removed, not updated
+        putData(prj)  # Save changes now!
+
+        @debug "Calculation finished"
+        rc=Result("computed", OK, "Successfully computed!")
+        rj(rc)
     end
-
-    println(df)
-
-    gtRes = userComputeGeotherm(ini, df)
-
-    figIO = IOBuffer()
-    figChiIO = IOBuffer()
-    figOptIO = IOBuffer()
-
-    gtOptRes = userPlot(gtRes, "", figIO, figChiIO, figOptIO)
-
-    fig = figIO |> take! |> String
-    if optimize
-        figChi = figChiIO |> take! |> String
-        figOpt = figOptIO |> take! |> String
-    end
-
-    # println(fig)
-
-    removeFigs(prj)
-    saveFig(prj, fig, "geotherms")
-    if optimize
-        saveFig(prj, figChi, "chisquare")
-        saveFig(prj, figOpt, "optimized")
-    end
-
-    rc=Result("computed", OK, "Successfully computed!")
-    rj(rc)
 end
 
 route(API*"project/:uuid/graphs", method=POST) do
-    uuid=UUIDs.UUID(payload(:uuid))
+    Logging.with_logger(debug_logger) do
+        uuid=UUIDs.UUID(payload(:uuid))
 
-    pdr = getProjectData(uuid)
-    if pdr.level >= ERROR
-        return rj(pdr)
-    end
-    prj = pdr.value;
+        pdr = getProjectData(uuid)
+        if pdr.level >= ERROR
+            return rj(pdr)
+        end
 
-    obj = Mongoc.BSON()
-    obj["project"] = prj["uuid"]
-    db = config.client[config.dbName]
-    coll = db["figures"]
-    objs = []
-    for o in Mongoc.find(coll, obj)
-        o["figure"] = o["figure"] |> rmHeader
-        push!(objs, o)
-    end
-    # println(objs)
-    if length(obj) == 0
-        answer = MB()
-        answer["uuid"]=uuid
-        rc = Result(answer, ERROR, "not found")
-    else
-        rc = Result(objs, OK, "found")
-    end
+        prj = pdr.value;
 
-    rj(rc)
+        figures = get(prj, "figures") do
+            rc = Result(DataDict("uuid"=>uuid), ERROR, "not found")
+            return rj(rc)
+        end
+
+
+        objs = []
+        for (key, fuuid) in figures
+            getData(fuuid) do fig
+                fig["figure"] = fig["figure"] |> rmHeader
+            end
+            push!(objs, o)
+            @debug "Added figure in the figure list" key=key uuid=fuuid
+        end
+
+        @debug "Returning figure list" len=length(objs)
+
+        rc = Result(DataDict("figure"=>objs), OK, "found")
+        rj(rc)
+    end
 end
 
 route(API*"project/:uuid/figure/:key", method=GET) do
-    uuid=UUIDs.UUID(payload(:uuid))
-    key=payload(:key)
+    Logging.with_logger(debug_logger) do
+        uuid=UUIDs.UUID(payload(:uuid))
+        key=payload(:key)
 
-    pdr = getProjectData(uuid)
-    if pdr.level >= ERROR
-        return rj(pdr)
-    end
-    prj = pdr.value;
+        function fnf()
+            resp = GE.getresponse() # response("file not found", :text)
+            GE.setbody!(resp, "file not found")
+            GE.setstatus!(resp, 404)
+            @debug "Figure not found" uuid=uuid key=key
+            return resp
+        end
 
-    obj = Mongoc.BSON()
-    obj["project"] = prj["uuid"]
-    obj["key"] = key
-    db = config.client[config.dbName]
-    coll = db["figures"]
-    obj = Mongoc.find_one(coll, obj)
-    # println(objs)
-    if isnothing(obj)
-        resp = GE.getresponse() # response("file not found", :text)
-        GE.setbody!(resp, "file not found")
-        GE.setstatus!(resp, 404)
-        return resp
+        pdr = getProjectData(uuid)
+        if pdr.level >= ERROR
+            return fnf()
+        end
+        prj = pdr.value;
+
+        figures = get(prj, "figures") do
+            return fnf()
+        end
+        fig = get(figures, key) do
+            return fnf()
+        end
+
+        figures = fr.value;
+
+        @debug "Figure found" key=key
+
+        resp = GE.getresponse()
+        GE.setbody!(resp, obj["figure"])
+        GE.setstatus!(resp, 200)
+        GE.setheaders!(resp, Dict("Content-type" => "image/svg+xml"))
     end
-    println(obj["figure"])
-    resp = GE.getresponse()
-    # Content-Type: image/svg+xml
-    GE.setbody!(resp, obj["figure"])
-    GE.setstatus!(resp, 200)
-    GE.setheaders!(resp, Dict("Content-type" => "image/svg+xml"))
 end
 
-
-function storeModelData(projectUuid::UUID, newData::MB)::Result
+function storeModelData(projectUuid::UUID, newData::DataDict)::Result
     Logging.with_logger(debug_logger) do
         @debug "storeModelData begin:" projectUuid newData=newData
 
@@ -804,180 +954,172 @@ function storeModelData(projectUuid::UUID, newData::MB)::Result
         end
         project = pdr.value;
 
+        modeluuid = project["model"]
 
-        modelsuuid = project["model"]
+        modelr = getModelData(modeluuid)
 
-        modelr = getModelData(UUID(modelsuuid))
-        @debug "getModelData" modelr=modelr
         model = nothing
         if modelr.level < ERROR
             model = modelr.value
         end
 
-        obj = Mongoc.BSON()
-        db = config.client[config.dbName]
-        models = db["models"]
-        projects = db["projects"]
-
-        if modelsuuid == (config.defaultModelUUID |> string)
-            modelsuuid = uuid4() |> string
-            obj = MB()
-            obj["uuid"] = projectUuid |> string
-            upd = MB()
-            upd["\$set"]=MB("model" => modelsuuid)
-            Mongoc.update_one(projects, obj, upd); # Set new modelUUID
+        if modeluuid == (config.defaultModelUUID)
+            modeluuid = uuid1()
+            project["model"]=modeluuid
+            putData(project)
             @debug "MODEL STORE: New record record by uuid" uuid=modelsuuid
-            #delete!(sessionCache, obj["uuid"]) # Invalidate project data in the session cache
-            #@debug "MODEL STORE: Deleted SESSION CACHE record by [old] project uuid" uuid=projectUuid
-        else
-            obj["uuid"] = modelsuuid
-            obj1 = Mongoc.delete_one(models, obj)
-            @debug "MODEL STORE: Deleted record by uuid" uuid=modelsuuid
         end
-        newData["uuid"] = modelsuuid
+
+        newData["uuid"] = modeluuid
         newData["user"] = project["user"]
-        rc = Mongoc.insert_one(models,newData);
+        putData(newData)
+
         @debug "MODEL STORE: Stored a record" newData=newData rc=rc uuid=modelsuuid
-        #sessionCache[projectUuid |> string] = Result(project, OK, "Cached project")
-        #sessionCache[modelsuuid ] = Result(newData, OK, "Cached Model")
         return Result(newData, OK, "Model data updated successfully!")
     end
 end
 
 route(API*"project/:uuid/savemodel", method=POST) do
-    uuid=UUIDs.UUID(payload(:uuid))
-    js = postpayload(:JSON_PAYLOAD)
-    rc = storeModelData(uuid, MB(js))
-    rj(rc)
+    Logging.with_logger(debug_logger) do
+        uuid=UUIDs.UUID(payload(:uuid))
+        js = postpayload(:JSON_PAYLOAD)
+        rc = storeModelData(uuid, js)
+        @debug "Updated model data" uuid=uuid
+        rj(rc)
+    end
 end
 
 route(API*"project/:uuid/setup", method=POST) do
-    uuid=UUIDs.UUID(payload(:uuid))
-    js = postpayload(:JSON_PAYLOAD)
+    Logging.with_logger(debug_logger) do
+        uuid=UUIDs.UUID(payload(:uuid))
+        js = postpayload(:JSON_PAYLOAD)
 
-    prjr = getProjectData(uuid)
-    if prjr.level >= ERROR
-        return rj(prjr)
-    end
-
-    prj = prjr.value
-
-    colNames = js["colNames"]
-    colRoles = js["colRoles"]
-
-    trans :: Dict{String,String} = Dict()
-    for (k,v) in zip(colNames, colRoles)
-        if (k!=v)
-            trans[k] = v
+        prjr = getProjectData(uuid)
+        if prjr.level >= ERROR
+            return rj(prjr)
         end
+
+        prj = prjr.value
+
+        colNames = js["colNames"]
+        colRoles = js["colRoles"]
+
+        trans = DataDict()
+        for (k,v) in zip(colNames, colRoles)
+            if (k!=v)
+                trans[k] = v
+            end
+        end
+
+        prj["rename"] = trans
+        putData(prj)
+
+        rc = Result(DataDict("uuid"=>uuid), OK, "Setup accepted")
+        rj(rc)
     end
-
-    obj = Mongoc.BSON()
-    db = config.client[config.dbName]
-    projects = db["projects"]
-    obj = MB()
-    obj["uuid"] = prj["uuid"]
-    upd = MB()
-    upd["\$set"]=MB("rename" => Mongoc.BSON(trans))
-    Mongoc.update_one(projects, obj, upd); # Set column renaming
-    #delete!(sessionCache, prj["uuid"]) # Invalidate the cache data
-
-    rc = Result(uuid |> string, OK, "Setup accepted")
-    rj(rc)
 end
 
 route(API*"project/:uuid/model", method=POST) do
     Logging.with_logger(debug_logger) do
         uuid=UUIDs.UUID(payload(:uuid))
         prj = getProjectData(uuid)
-        @debug "getProjectData" project_uuid=prj.value["uuid"]
+
         if prj.level >= ERROR
             return rj(prj)
         end
-        rc = getModelData(UUID(prj.value["model"]))
-        @debug "getModelData" uuid=prj.value["model"] rc=rc
+        rc = getModelData(prj.value["model"])
+
         rj(rc)
     end
 end
 
 route(API*"projects/changetag/:op/arg/:arg", method=POST) do
-    op=payload(:op)
-    arg=payload(:arg)
-    js = postpayload(:JSON_PAYLOAD)
-    projects = js["projects"]
-    updated = []
-    println("UPDATE request for ", projects, " ", op, " tag: ", arg)
-    for suuid in projects
-        uuid = suuid |> UUID
-        prjr = getProjectData(uuid)
-        if prjr.level >= ERROR
-            return rj(prj)
-        end
-        prj = prjr.value
-        #delete!(sessionCache, suuid) # Invalidate the cache
-        usersuuid = prj["user"]
-        tagsr = getData(uuid, "tagging", UUID(usersuuid)) do o
-        end
-        if tagsr.level == NOTFOUND
-            tags = MB()
-            tags["uuid"] = suuid
-            tags["user"] = usersuuid
-        else
-            tags = tagsr.value
-        end
-        update = false
-        neets = []
-        if op == "add"
-            if tagsr.level == NOTFOUND
-                tags["tags"] = [arg]
-                db = config.client[config.dbName]
-                coll = db["tagging"]
-                Mongoc.insert_one(coll, tags)
-                push!(updated, suuid)
-            else
-                ts = tags["tags"]
-                if ! (arg in ts)
-                    push!(ts, arg)
+    Logging.with_logger(debug_logger) do
+        op=payload(:op)
+        arg=payload(:arg)
+        js = postpayload(:JSON_PAYLOAD)
+        projects = js["projects"]
+        updated = []
+        @info "UPDATE request for " projects=projects op=op  tag=arg
+
+        for suuid in projects
+            uuid = suuid |> UUID
+
+            prjr = getProjectData(uuid)
+            if prjr.level >= ERROR
+                return rj(prj)
+            end
+            prj = prjr.value
+            useruuid = prj["user"]
+            userr = getUserData(uuid)
+
+            if userr.level < ERROR
+                return rj(userr)
+            end
+
+            user = userr.value
+
+            tagDict = get(user, "tags") do
+                if op == "delete"
+                    continue
+                else
+                    DataDict("projects"=>DataDict())
                 end
-                newts = ts
-                update = true
             end
-        elseif op=="delete"
-            ts = tags["tags"]
-            filter!( t-> t!=arg, ts)
-            newts=ts
-            update = true
-        else
-            return rj(Result(op, ERROR, "Unknown operation: " * op))
-        end
-        if update
-            db = config.client[config.dbName]
-            tagging = db["tagging"]
-            obj=MB("uuid" => suuid, "user" => usersuuid)
-            if !isempty(newts)
-                upd=MB()
-                upd["\$set"] = MB("tags"=>newts)
-                println(obj, "\n", upd)
-                Mongoc.update_one(tagging, obj, upd)
+
+            tags = tagDict["projects"]
+
+            # TODO
+
+            if tagsr.level == NOTFOUND
+                tags = DataDict()
+                tags["uuid"] = uuid
+                tags["user"] = useruuid
             else
-                Mongoc.delete_one(tagging, obj)
+                tags = tagsr.value
             end
-            push!(updated, suuid)
+
+            tag = config.db.tag
+            if op == "add"
+                if tagsr.level == NOTFOUND
+                    tags["tags"] = [arg]
+                else
+                    ts = tags["tags"]
+                    if ! (arg in ts)
+                        push!(ts, arg)
+                    end
+                    tags["tags"]=ts
+                end
+            elseif op=="delete"
+                ts = tags["tags"]
+                filter!( t-> t!=arg, ts)
+                tags["tags"] = ts
+            else
+                return rj(Result(op, ERROR, "Unknown operation: " * op))
+            end
+            tag[uuid]=tags
+            push!(updated, uuid)
         end
+        rj(Result(DataDict("tags" => updated),OK,"Projects tags have updated"))
     end
-    rj(Result(updated,OK,"Projects tags have updated"))
 end
 
 function main()
-    mongoClient = connectDb()
+    dbs = connectDb()
     # test()
     println("Routes -----")
     for r in routes()
-        println(r)
+        @info "Route" r=r
     end
-    up(8000
-       , async=false)
+    up(8000, async=false)
 end
+
+# function test()
+#     println("CFG:", config.client, "\n")
+#     # u = addUser("eugeneai","Evgeny Cherkashin", "ISDCT SB RAS", "passW0rd", "eugeneai@irnok.net")
+#     println(u)
+#     println(getUserData(u.value))
+# end
 
 if PROGRAM_FILE != ""
     main()
