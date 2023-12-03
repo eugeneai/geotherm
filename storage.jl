@@ -147,15 +147,10 @@ end
 
 function _connDb(f::Function, dd::DD)
     db = f(DD)
-    try
-        dbFullPath = config.dbLocation * "/" * config.dbName * "-" * DD.name * "." * DD.indexType
-        KC.open(db, dbFullPath
-                  , KC.KCOWRITER | KC.KCOCREATE)
-        @info ("Database mapping '" * dbFullPath * "' opened!")
-    catch
-        @error ("Cannot connect KyotoCabinet database mapping! Name:" * dbFullPath)
-        exit()
-    end
+    dbFullPath = config.dbLocation * "/" * config.dbName * "-" * dd.name * "." * dd.index
+    KC.open(db, dbFullPath
+            , KC.KCOWRITER | KC.KCOCREATE)
+    @info ("Database mapping '" * dbFullPath * "' opened!")
     dd.db=db
     return db
 end
@@ -165,14 +160,15 @@ function connectDb()
         _connDb(dbId) do dd
             db=KC.Db{UUID, DataDict}()
             @debug "Created id database"
-            if !haskey(db, config.defaultModelUUID)
-                @info "Add default model!"
-            end
             db
         end
+        if !haskey(dbId.db, config.defaultModelUUID)
+            @info "Add default model!"
+        end
         _connDb(dbAlias) do dd
-            KC.Db{String, UUID}()
+            db=KC.Db{String, UUID}()
             @debug "Created alias database"
+            db
         end
         config.db = Database(dbId, dbAlias)
         return config.db
@@ -1066,11 +1062,13 @@ route(API*"projects/changetag/:op/arg/:arg", method=POST) do
 
             tagDict = get(user, "tags") do
                 if op == "delete"
-                    continue
+                    nothing
                 else
                     DataDict()
                 end
             end
+
+            if isNothing(tagDict) continue end
 
             tags = get!(tagDict, "projects") do
                 DataDict()
