@@ -35,15 +35,14 @@ default_logger = Logging.global_logger(info_logger)
 
 include("fileLoaders.jl")
 
-@enum ResultLevel::Int8 begin
-    OK = 0
-    CACHED = 1
-    INFO = 2
-    DEBUG = 3
-    ERROR = 10
-    NOTFOUND = 11
-    FATAL = 20
-end
+ResultLevel=UInt8
+OK::ResultLevel = 0
+CACHED::ResultLevel = 1
+INFO::ResultLevel = 2
+DEBUG::ResultLevel = 3
+ERROR::ResultLevel = 10
+NOTFOUND::ResultLevel = 11
+FATAL::ResultLevel = 20
 
 # Checking OK - if foo.level < ERROR then ... OK....
 
@@ -69,6 +68,7 @@ mutable struct Config
     server::String
     defaultModelUUID::UUID
     demoDataUUID::UUID
+    demoUserUUID::UUID
 end
 
 mutable struct DD  # A database KyotoCabinet Dictionary
@@ -96,6 +96,8 @@ config::Config = Config( false # Debug
                          , "https://gtherm.ru"
                          , UUID("cdda3a47-e5bb-570a-950d-f9c191e5dfbb") # Default model
                          , UUID("9413fd3d-9ad9-4e33-9869-cc4cfd884ada") # Example Data
+                         , UUID("a2d83840-91d5-11ee-34cd-4fac098eaba5") # Demo user
+
                          )
 
 Genie.config.run_as_server = true
@@ -131,7 +133,7 @@ end
 
 function Base.convert(t::Type{UUID}, v::KC.Bytes)::UUID
     vs = reinterpret(UInt128, v) |> Vector
-    UUID(vs[0])
+    UUID(vs[1])
 end
 
 function Base.convert(t::Type{KC.Bytes}, d::DataDict)::KC.Bytes
@@ -162,15 +164,13 @@ function connectDb()
             @debug "Created id database"
             db
         end
-        if !haskey(dbId.db, config.defaultModelUUID)
-            @info "Add default model!"
-        end
         _connDb(dbAlias) do dd
             db=KC.Db{String, UUID}()
             @debug "Created alias database"
             db
         end
         config.db = Database(dbId, dbAlias)
+        considerAddingDefaults()
         return config.db
     end
 end
@@ -178,11 +178,11 @@ end
 UN = Union{UUID,Nothing}
 
 function ids()
-    config.db.id
+    config.db.id.db
 end
 
 function aliases()
-    config.db.alias
+    config.db.alias.db
 end
 
 function getData(okf::Function, uuid::UUID)::Result
@@ -215,8 +215,8 @@ function putData(errf::Function, obj::DataDict)
 end
 
 function putData(obj::DataDict)
-    Logging.with_logger(debug_logger) do obj
-        @error "object has no uuid" obj=obj
+    putData(obj) do o
+        @error "object has no uuid" obj=o
         error("object has no uuid")
     end
 end
@@ -252,11 +252,13 @@ function getUserData(errf::Function, uuid::UUID, removePassword::Bool=true)::Res
                 if removePassword
                     v["password"]="******"
                 end
+                v
             end
             if rc.level >= ERROR
-                errf(rc)
+                rc = errf(rc)
+                @debug "Processed callback" rc=rc
             end
-            @debug "Loaded user data from KyotoCabinet"
+            @debug "Loaded user data from KyotoCabinet" rc=rc
             rc
         end
     end
@@ -270,7 +272,7 @@ function getProjectData(errf::Function, uuid::UUID)::Result
             end
         end
         if rc.level >= ERROR
-            errf(rc)
+            rc = errf(rc)
         end
         @debug "Project data loaded from KyotoCabinet"
         rc
@@ -284,7 +286,7 @@ function getModelData(uuid::UUID)::Result
         rc = getData(uuid) do mdl end
         if rc.level >= ERROR
             rc = getDefaultModel()
-            Result(rc.value, rc.level,
+            rc = Result(rc.value, rc.level,
                    rc.description * "(model has lost somewhere, reset to the default one)")
             # errf(rc)
         else
@@ -357,15 +359,14 @@ function encryptPassword(password::String)::String
 end
 
 function addUser(alias::String, name::String, org::String,
-                 password::String, email::String) :: Result
+                 password::String, email::String, sendMail=true) :: Result
     Logging.with_logger(debug_logger) do
-        alias = aliases()
+        aliasDb = aliases()
 
         key="USER-" * alias
 
-        if haskey(alias, key)
-            uuid = alias[key]
-            @warn "User not found" alias=alias
+        if alias!="demo" && haskey(aliasDb, key)
+            uuid = aliasDb[key]
             return Result(
                 DataDict("uuid" => uuid) ,
                 ERROR, "User with this account name exists. Choose another one.")
@@ -381,8 +382,10 @@ function addUser(alias::String, name::String, org::String,
         uuid = uuid1()
         user["uuid"] = uuid
         putData(user)
-        alias[key]=uuid
-        sendEmailApproval(user)
+        aliasDb[key]=uuid
+        if sendMail
+            sendEmailApproval(user)
+        end
         rc = Result(user, OK, "user added")
         sessionCache[uuid] = rc
         return rc
@@ -454,13 +457,13 @@ end
 
 function rj(answer::Result)
     Logging.with_logger(debug_logger) do
-        l = answer.level
+        l = answer.level::UInt8
         v = answer.value
         m = answer.description
 
         d = DataDict([("description", m)])
         d["value"] = v
-        d["level"] = convert(UInt8, l)
+        d["level"] = l
         d["rcdescr"] =
             if l == OK
                 "OK"
@@ -488,7 +491,9 @@ API="/api/1.0/"
 route(API*"user/:uuid/data", method=POST) do
     Logging.with_logger(debug_logger) do
         uuid=UUID(payload(:uuid))
-        rc = getUserData(uuid)
+        rc = getUserData(uuid) do rc
+            return rj(rc)
+        end
         @debug "user/..../data" uuid=uuid rc=rc
         rj(rc)
     end
@@ -654,13 +659,20 @@ route(API*"user/:uuid/projects", method=POST) do
 
         user = rc.value;
 
-        userProj = config.db.userProj
-
-        projs = get(userProj, uuid) do
-            projs = DataDict("projects" => []::Vector{UUID})
+        projects = get(user, "projects") do
+            Set{UUID}()
         end
 
-        demoFound = false
+        ptag = get(user, "tags") do
+            DataDict("projects" => Set{UUID}())
+        end
+
+        tags = ptag["projects"]
+
+        if ! (config.demoDataUUID in projects)
+            push!(projects, config.demoDataUUID)
+        end
+
         answer :: Vector{DataDict}=[];
 
         function canonify(a::DataDict)::DataDict
@@ -676,53 +688,32 @@ route(API*"user/:uuid/projects", method=POST) do
             projUuid = row["uuid"] = a["uuid"]
             row["user"] = a["user"]
             uuuid = a["user"]
-            tag = config.db.tag
-            if haskey(tag, projUuid)
-                tagD = tag[projUuid]
-                projTags = tagD["tags"]
+
+            if projUuid in tags
+                ptags=tag[projUuid]
             else
-                projTags = []::Vector{UUID}
+                ptags=Set{String}()
             end
-            row["tags"] = projTags
+            row["tags"] = ptags
             row
         end
 
-        projects = projs["projects"]
 
-        for a in projects # must be done once
-            row = canonify(a)
-            if config.demoDataUUID == UUID(a["uuid"])
-                demoFound = true
-                tags = row["tags"]
-                push!(tags, "demo")
-                row["tags"] = tags
+        for projuuid in projects # must be done once
+            prjr = getProjectData(projuuid) do rc
+                return rj(rc)
             end
+
+            row = canonify(prjr.value)
+
             md = getModelData(UUID(row["model"]))
             if md.level >= ERROR
-                return rj(md)
+                return rj(rc)
             end
             v = md.value
             row["modelData"] = v
             push!(answer, row)
         end
-
-        # if !demoFound
-        #     for a in Mongoc.find(coll, qdemo) # must be done once
-        #         row = canonify(a)
-        #         md = getModelData(UUID(row["model"]))
-        #         if md.level >= ERROR
-        #             return rj(md)
-        #         end
-        #         v = md.value
-        #         row["modelData"] = v
-        #         row["name"] = "(DEMO)"*row["name"]
-        #         row["archived"] = false
-        #         tags = row["tags"]
-        #         push!(tags, "demo")
-        #         row["tags"] = tags
-        #         push!(answer, row)
-        #     end
-        # end
 
         rc = Result(answer, OK, "Project data, possibly empty.")
         rj(rc)
@@ -732,7 +723,9 @@ end
 route(API*"project/:uuid/dataframe", method=POST) do
     Logging.with_logger(debug_logger) do
         uuid=UUIDs.UUID(payload(:uuid))
-        rc = getProjectData(uuid)
+        rc = getProjectData(uuid) do rc
+            return rj(rc)
+        end
         rj(rc)
     end
 end
@@ -803,9 +796,8 @@ route(API*"project/:uuid/calculate", method=POST) do
     Logging.with_logger(debug_logger) do
         uuid=UUIDs.UUID(payload(:uuid))
 
-        pdr = getProjectData(uuid)
-        if pdr.level >= ERROR
-            return rj(pdf)
+        pdr = getProjectData(uuid) do rc
+            return rj(rc)
         end
 
         prj = pdr.value
@@ -847,10 +839,8 @@ route(API*"project/:uuid/calculate", method=POST) do
                 dfnew[v] = df[:, k]
             end
             df = DataFrame(dfnew)
-            df = canonifyRenamedDF(df)
-        else
-            df = canonifyDF(df) # Try calculate as is
         end
+        df = canonifyDF(df)
 
         @debug "Data frame" df=df
 
@@ -950,7 +940,7 @@ route(API*"project/:uuid/figure/:key", method=GET) do
     end
 end
 
-function storeModelData(projectUuid::UUID, newData::DataDict)::Result
+function storeModelData(projectUuid::UUID, newData::Dict{String, Any})::Result
     Logging.with_logger(debug_logger) do
         @debug "storeModelData begin:" projectUuid newData=newData
 
@@ -976,11 +966,13 @@ function storeModelData(projectUuid::UUID, newData::DataDict)::Result
             @debug "MODEL STORE: New record record by uuid" uuid=modelsuuid
         end
 
-        newData["uuid"] = modeluuid
-        newData["user"] = project["user"]
-        putData(newData)
+        newD = DataDict()
+        merge!(newD, newData)
+        newD["uuid"] = modeluuid
+        newD["user"] = project["user"]
+        putData(newD)
 
-        @debug "MODEL STORE: Stored a record" newData=newData rc=rc uuid=modelsuuid
+        @debug "MODEL STORE: Stored a record" newD=newD uuid=modelsuuid
         return Result(newData, OK, "Model data updated successfully!")
     end
 end
@@ -1090,6 +1082,37 @@ route(API*"projects/changetag/:op/arg/:arg", method=POST) do
             putData(prj)
         end
         rj(Result(DataDict("tags" => updated), OK, "Projects tags have updated"))
+    end
+end
+
+function considerAddingDefaults()
+    Logging.with_logger(debug_logger) do
+        userr = getUserData(config.demoUserUUID) do objr
+            rc = addUser("demo","Demo User", "Demo Organization", "demo",
+                    "demo@example.org", false)
+            @warn "Try to add demo user" rc=rc
+            rc
+        end
+        if userr.level >= ERROR
+            @info "Demo user error: " * userr.description
+            error("demo user: " * userr.description)
+        end
+        user = userr.value
+        projectsUuids = get!(user, "projects") do
+            Set{UUID}()
+        end
+        if ! (config.demoDataUUID in projectsUuids)
+            prjr = getProjectData(config.demoDataUUID) do objr
+                df = CSV.read("data/PTdata.csv", DataFrame, delim=';', decimal=',')
+                rc = storeDataFrame(df, user, "PTdata", config.demoDataUUID)
+                if isnothing(rc)
+                    @error "Cannot add demo project"
+                end
+                rc
+            end
+            push!(projectsUuids, config.demoDataUUID)
+            putData(user)
+        end
     end
 end
 
