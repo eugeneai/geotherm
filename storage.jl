@@ -457,7 +457,7 @@ function storeDataFrames(dfs, userData, projectName)::Pair{Vector{UUID},Vector{U
                 @debug "Added project" uuid=uuid name=dfname
                 push!(uuids, uuid)
             else
-                @debug rc.description uuid=uuid name=name
+                @debug rc.description uuid=uuid name=dfname
                 push!(old, uuid)
             end
         end
@@ -568,7 +568,7 @@ route(API*"user/:uuid/project/upload", method=POST) do
                     putData(userData)
                     rc = Result(DataDict("uuids"=>newUuids),
                                 OK, "File data has successfully uploaded! Also " * msg
-                                * format("Added {} record(s).", length(uuids)))
+                                * format(" (added {} record(s)).", length(newUuids)))
                 else
                     @debug "No new data found"
                     rc = Result(DataDict("uuids"=>newUuids),
@@ -879,6 +879,7 @@ route(API*"project/:uuid/calculate", method=POST) do
             end
             df = DataFrame(dfnew)
         end
+
         df = canonifyDF(df)
 
         @debug "Data frame" df=df
@@ -924,10 +925,15 @@ route(API*"project/:uuid/graphs", method=POST) do
 
         figures = get(prj, "figures") do
             rc = Result(DataDict("uuid"=>uuid), ERROR, "not found")
-            return rj(rc)
+            return rc
+        end
+
+        if typeof(figures) == Result
+            return rj(figures)
         end
 
         objs = []
+        @debug "FIGURES" figures=figures prj=prj
         for (key, fuuid) in figures
             getData(fuuid) do f
                 f["figure"] = f["figure"] |> rmHeader
@@ -966,18 +972,28 @@ route(API*"project/:uuid/figure/:key", method=GET) do
         figures = get(prj, "figures") do
             return fnf()
         end
-        fig = get(figures, key) do
+
+        figuuid = get(figures, key) do
             return fnf()
         end
 
-        figures = fr.value;
+        @debug "Figure found" key=key uuid=figuuid
 
-        @debug "Figure found" key=key
+        fr = getData(figuuid) do fig
+        end
+
+        if fr.level >= ERROR
+            return fnf()
+        end
 
         resp = GE.getresponse()
-        GE.setbody!(resp, obj["figure"])
+        figSVG = fr.value["figure"]
+        # figSVG = transcode(UInt8, fr.value["figure"])
+        # @debug "TYPE:" type=typeof(figSVG)
+        # GE.setbody!(resp, figSVG)
         GE.setstatus!(resp, 200)
-        GE.setheaders!(resp, Dict("Content-type" => "image/svg+xml"))
+        GE.setheaders!(resp, Dict("Content-type" => "image/svg+xml; charset=utf-8"))
+        figSVG
     end
 end
 
@@ -1004,7 +1020,7 @@ function storeModelData(projectUuid::UUID, newData::Dict{String, Any})::Result
             modeluuid = uuid1()
             project["model"]=modeluuid
             putData(project)
-            @debug "MODEL STORE: New record record by uuid" uuid=modelsuuid
+            @debug "MODEL STORE: New record record by uuid" uuid=modeluuid
         end
 
         newD = DataDict()
@@ -1076,7 +1092,8 @@ route(API*"projects/changetag/:op/arg/:arg", method=POST) do
         arg=payload(:arg)
         js = postpayload(:JSON_PAYLOAD)
         projects = js["projects"]
-        user = UUID(js["user"])
+        useruuid = UUID(js["user"])
+        @debug "USER UUID" user=user
         updated = []
         @info "UPDATE request for " projects=projects op=op  tag=arg
 
@@ -1087,7 +1104,6 @@ route(API*"projects/changetag/:op/arg/:arg", method=POST) do
                 return rj(obj)
             end
             prj = prjr.value
-            useruuid = user # prj["user"]
             userr = getUserData(useruuid) do obj
                 return rj(obj)
             end
