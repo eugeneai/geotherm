@@ -39,7 +39,10 @@ ResultLevel=UInt8
 OK::ResultLevel = 0
 CACHED::ResultLevel = 1
 INFO::ResultLevel = 2
-DEBUG::ResultLevel = 3
+ALREADY::ResultLevel = 3
+FOUND::ResultLevel = 4
+# .....
+DEBUG::ResultLevel = 9
 ERROR::ResultLevel = 10
 NOTFOUND::ResultLevel = 11
 FATAL::ResultLevel = 20
@@ -177,6 +180,8 @@ end
 
 UN = Union{UUID,Nothing}
 
+
+
 function ids()
     config.db.id.db
 end
@@ -188,14 +193,14 @@ end
 function getData(okf::Function, uuid::UUID)::Result
     Logging.with_logger(debug_logger) do
         db = ids()
-        try
-            obj = db[uuid]
+        if haskey(db, uuid)
+            obj = get(db, uuid)
             okf(obj)
             @debug "Object loaded" uuid=uuid
             return Result(obj, OK, "found")
-        catch
+        else
             answer = DataDict()
-            answer["uuid"]=uuid
+            answer["uuid"] = uuid
             @error "Object not found" uuid=uuid
             return Result(answer, NOTFOUND, "object not found")
         end
@@ -384,7 +389,7 @@ function addUser(alias::String, name::String, org::String,
         putData(user)
         aliasDb[key]=uuid
         if sendMail
-            sendEmailApproval(user)
+            # sendEmailApproval(user)
         end
         rc = Result(user, OK, "user added")
         sessionCache[uuid] = rc
@@ -411,7 +416,7 @@ function logoutUser(uuid::UUID)::Result
     end
 end
 
-function storeDataFrame(df, userData, projectName, uuid::UN=nothing)::UN
+function storeDataFrame(df, userData, projectName, uuid::UN=nothing)::Result
     Logging.with_logger(debug_logger) do
         useruuid = userData["uuid"]
 
@@ -433,25 +438,30 @@ function storeDataFrame(df, userData, projectName, uuid::UN=nothing)::UN
             putData(r)
             @debug "Stored new project" uuid=uuid key=key
             alias[key] = uuid
-            uuid
+            Result(uuid, OK, "Added data")
         else
-            nothing
+            Result(alias[key], ALREADY, "Already in the alias database")
         end
     end
 end
 
-function storeDataFrames(dfs, userData, projectName)::Vector{UUID}
+function storeDataFrames(dfs, userData, projectName)::Pair{Vector{UUID},Vector{UUID}}
     Logging.with_logger(debug_logger) do
         uuids = Vector{UUID}()
+        old = Vector{UUID}()
         for i in eachindex(dfs)
             (dfname, df) = dfs[i]
-            uuid = storeDataFrame(df, userData, dfname)
-            if !isnothing(uuid)
+            rc = storeDataFrame(df, userData, dfname)
+            uuid = rc.value
+            if rc.level == OK
                 @debug "Added project" uuid=uuid name=dfname
                 push!(uuids, uuid)
+            else
+                @debug rc.description uuid=uuid name=name
+                push!(old, uuid)
             end
         end
-        uuids
+        Pair(uuids, old) # fst has new && snd has old uuids
     end
 end
 
@@ -471,6 +481,10 @@ function rj(answer::Result)
                 "ERROR"
             elseif l == INFO
                 "INFO"
+            elseif l == FOUND
+                "FOUND"
+            elseif l == ALREADY
+                "ALREADY"
             elseif l == FATAL
                 "FATAL"
             elseif l == DEBUG
@@ -534,14 +548,31 @@ route(API*"user/:uuid/project/upload", method=POST) do
                 @warn "Did not load anything" mime=mime
                 rc = Result(mime, ERROR, "File type " * mime * " cannot be loaded!")
             else
-                uuids = storeDataFrames(dfs, userData, projectName)
-                if length(uuids) > 0
-                    rc = Result(DataDict("uuids"=>uuids),
-                                OK, "File data has successfully uploaded! "
+                (newUuids, oldUuids) = storeDataFrames(dfs, userData, projectName)
+                if length(newUuids) + length(oldUuids) > 0
+                    userProjects = get!(userData, "projects") do
+                        Set{UUID}()
+                    end
+                    msg = ""
+                    if !isempty(newUuids)
+                        msg = msg * "added data"
+                        union!(userProjects, newUuids)
+                    end
+                    if !isempty(oldUuids)
+                        if !isempty(msg)
+                            msg = msg * " and "
+                        end
+                        msg = msg * "reattached data"
+                        union!(userProjects, oldUuids)
+                    end
+                    putData(userData)
+                    rc = Result(DataDict("uuids"=>newUuids),
+                                OK, "File data has successfully uploaded! Also " * msg
                                 * format("Added {} record(s).", length(uuids)))
                 else
                     @debug "No new data found"
-                    rc = Result(uuids, INFO, "No new data added! It seems You're already done that.")
+                    rc = Result(DataDict("uuids"=>newUuids),
+                                INFO, "No new data added! It seems You're already done that.")
                 end
             end
         else
@@ -663,9 +694,13 @@ route(API*"user/:uuid/projects", method=POST) do
             Set{UUID}()
         end
 
+        @debug "USER data" user=user
+
         ptag = get(user, "tags") do
             DataDict("projects" => Set{UUID}())
         end
+
+        @debug "USER tags" ptag = ptag
 
         tags = ptag["projects"]
 
@@ -675,7 +710,7 @@ route(API*"user/:uuid/projects", method=POST) do
 
         answer :: Vector{DataDict}=[];
 
-        function canonify(a::DataDict)::DataDict
+        function canonify(a::DataDict, projuuid::UUID)::DataDict
             row = DataDict()
             if ! haskey(a, "model")
                 row["model"] = config.defaultModelUUID
@@ -686,14 +721,14 @@ route(API*"user/:uuid/projects", method=POST) do
             row["name"] = a["name"]
             row["model"] = a["model"]
             projUuid = row["uuid"] = a["uuid"]
-            row["user"] = a["user"]
+            row["user"] = uuid       # The current user
+            row["owner"] = a["user"] # Let it be owner of the project
             uuuid = a["user"]
 
-            if projUuid in tags
-                ptags=tag[projUuid]
-            else
-                ptags=Set{String}()
+            ptags = get(tags, projuuid) do
+                Set{UUID}()
             end
+
             row["tags"] = ptags
             row
         end
@@ -704,7 +739,7 @@ route(API*"user/:uuid/projects", method=POST) do
                 return rj(rc)
             end
 
-            row = canonify(prjr.value)
+            row = canonify(prjr.value, projuuid)
 
             md = getModelData(UUID(row["model"]))
             if md.level >= ERROR
@@ -749,7 +784,7 @@ function rmHeader(svg::String)::String
     xmlns = lines[2]
     xmlns = replace(xmlns, r"(width|height)=\".+?\" " => s"")
     lines[2] = xmlns
-    println(xmlns)
+    @debug "Removing header " xmlns=xmlns
     join(lines[2:end],"\n")
 end
 
@@ -757,7 +792,11 @@ function removeFigs!(prj::DataDict, updatePrj=true)
     Logging.with_logger(debug_logger) do
 
         @debug "Removing figures" prj=prj
-        figures = prj["figures"]
+        figures = get(prj, "figures", nothing)
+
+        if isnothing(figures)
+            return
+        end
 
         for (key, uuid) in figures
             deleteData(uuid)
@@ -858,7 +897,7 @@ route(API*"project/:uuid/calculate", method=POST) do
             figOpt = figOptIO |> take! |> String
         end
 
-        removeFigs!(prj, updatePrj=false)
+        removeFigs!(prj, false) # Remove old figures, do not update prj in KyotoCabinet
         saveFig!(prj, fig, "geotherms")
         if optimize
             saveFig!(prj, figChi, "chisquare")
@@ -890,16 +929,18 @@ route(API*"project/:uuid/graphs", method=POST) do
 
         objs = []
         for (key, fuuid) in figures
-            getData(fuuid) do fig
-                fig["figure"] = fig["figure"] |> rmHeader
+            getData(fuuid) do f
+                f["figure"] = f["figure"] |> rmHeader
+                f["key"] = key
+                push!(objs, f)
+                @debug "Added figure in the figure list" key=key uuid=fuuid
+                f
             end
-            push!(objs, o)
-            @debug "Added figure in the figure list" key=key uuid=fuuid
         end
 
         @debug "Returning figure list" len=length(objs)
 
-        rc = Result(DataDict("figure"=>objs), OK, "found")
+        rc = Result(DataDict("figures"=>objs), OK, "found")
         rj(rc)
     end
 end
@@ -972,7 +1013,7 @@ function storeModelData(projectUuid::UUID, newData::Dict{String, Any})::Result
         newD["user"] = project["user"]
         putData(newD)
 
-        @debug "MODEL STORE: Stored a record" newD=newD uuid=modelsuuid
+        @debug "MODEL STORE: Stored a record" newD=newD uuid=modeluuid
         return Result(newData, OK, "Model data updated successfully!")
     end
 end
@@ -1035,6 +1076,7 @@ route(API*"projects/changetag/:op/arg/:arg", method=POST) do
         arg=payload(:arg)
         js = postpayload(:JSON_PAYLOAD)
         projects = js["projects"]
+        user = UUID(js["user"])
         updated = []
         @info "UPDATE request for " projects=projects op=op  tag=arg
 
@@ -1045,12 +1087,14 @@ route(API*"projects/changetag/:op/arg/:arg", method=POST) do
                 return rj(obj)
             end
             prj = prjr.value
-            useruuid = prj["user"]
-            userr = getUserData(uuid) do obj
+            useruuid = user # prj["user"]
+            userr = getUserData(useruuid) do obj
                 return rj(obj)
             end
 
             user = userr.value
+
+            @debug "TAG Update USER" user=user
 
             tagDict = get(user, "tags") do
                 if op == "delete"
@@ -1060,7 +1104,7 @@ route(API*"projects/changetag/:op/arg/:arg", method=POST) do
                 end
             end
 
-            if isNothing(tagDict) continue end
+            if isnothing(tagDict) continue end
 
             tags = get!(tagDict, "projects") do
                 DataDict()
@@ -1073,15 +1117,20 @@ route(API*"projects/changetag/:op/arg/:arg", method=POST) do
             if op == "add"
                 push!(tagSet, arg)
             elseif op=="delete"
-                setdiff!(tagSet, arg)
+                setdiff!(tagSet, [arg])
             else
                 return rj(Result(op, ERROR, "Unknown operation: " * op))
             end
             tags[uuid]=tagSet
+            @debug "TAGSET after" tags=tags tagSet=tagSet arg=arg
             push!(updated, uuid)
-            putData(prj)
+            user["tags"] = tagDict
+            putData(user)
+
+            @debug "TAG After Update USER" user=user
+
         end
-        rj(Result(DataDict("tags" => updated), OK, "Projects tags have updated"))
+        rj(Result(DataDict("projects"=>updated), OK, "Projects tags have updated"))
     end
 end
 
