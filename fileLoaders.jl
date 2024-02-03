@@ -102,5 +102,5 @@ function localMain()::Dict{String, Any}
 end
 
 if PROGRAM_FILE != ""
-    localMain()
+#    localMain()
 end
