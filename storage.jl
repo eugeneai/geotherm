@@ -873,15 +873,6 @@ route(API*"project/:uuid/calculate", method=POST) do
         @debug "Data Frame in project (loaded)" df=prj["data"]
         df = DataFrame(prj["data"])
 
-        df = filter(df) do row
-            for v in row
-                if ! isa(v, Number)
-                    return false
-                end
-            end
-            true
-        end
-
         if haskey(prj, "rename")
             ren = prj["rename"]
             dfnew = DataDict()
@@ -892,6 +883,15 @@ route(API*"project/:uuid/calculate", method=POST) do
                 dfnew[v] = df[:, k]
             end
             df = DataFrame(dfnew)
+        end
+
+        df = filter(df) do row
+            for v in row
+                if ! isa(v, Number)
+                    return false
+                end
+            end
+            true
         end
 
         @debug "Data Frame before canonization" df=df
