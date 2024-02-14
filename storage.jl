@@ -386,6 +386,7 @@ function addUser(alias::String, name::String, org::String,
         user["emailChecked"] = false
         uuid = uuid1()
         user["uuid"] = uuid
+        # user["tags"] =
         putData(user)
         aliasDb[key]=uuid
         if sendMail
@@ -697,12 +698,14 @@ route(API*"user/:uuid/projects", method=POST) do
         @debug "USER data" user=user
 
         ptag = get(user, "tags") do
-            DataDict("projects" => Set{UUID}())
+            DataDict("projects" => DataDict())
         end
 
         @debug "USER tags" ptag = ptag
 
         tags = ptag["projects"]
+
+        @debug "Project tags" tags=tags
 
         if ! (config.demoDataUUID in projects)
             push!(projects, config.demoDataUUID)
