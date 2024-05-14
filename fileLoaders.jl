@@ -1,7 +1,7 @@
 
 using DataFrames
 import XLSX
-using Formatting
+using Format
 using OrderedCollections
 
 LoadRet = Union{Vector{Tuple{String,DataFrame}},Nothing}

@@ -16,7 +16,7 @@ import CSV
 import Base.Filesystem as FS
 using DataFrames
 import JSON as JS
-using Formatting
+using Format
 import Logging
 using BSON
 import Base
@@ -31,7 +31,11 @@ using HCGeoThermGraphics
 
 debug_logger = Logging.ConsoleLogger(stderr, Logging.Debug)
 info_logger = Logging.ConsoleLogger(stderr, Logging.Info)
+outfile = open("log.txt", "a")
+# file_logger = Logging.SimpleLogger(outfile, Logging.Info)
+
 default_logger = Logging.global_logger(info_logger)
+# default_logger = Logging.global_logger(file_logger)
 
 include("fileLoaders.jl")
 
