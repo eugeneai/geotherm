@@ -1,5 +1,6 @@
 .PHONY: server gulp prod dev mongo msh
 
+RS=rsync -Pav -e "ssh -i /home/eugeneai/.ssh/id_ed25519-gtherm" --delete-after
 server:
 	julia storage.jl
 
@@ -12,6 +13,10 @@ prod:
 dev:
 	gulp build:dev
 
+sync: 
+	# ssh root -i ~/.ssh/id_ed25519-gtherm
+	$(RS) /mnt/data/gtherm/site/html\&css/ eugeneai@root:/srv/http/gtherm.ru/
+
 mongo:
 	mongod --dbpath ./storage
 
@@ -23,3 +28,4 @@ mongo:
 # 4. db.figures
 msh:
 	mongosh mongodb://localhost/geotherm
+
