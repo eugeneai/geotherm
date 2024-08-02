@@ -7,6 +7,7 @@ using Genie.Renderer.Json
 using Genie.Renderer
 import Genie.Requests as GRQ
 import Genie.Responses as GE
+# import Genie
 using SMTPClient
 using Base64
 using Dates
@@ -1207,7 +1208,8 @@ function main()
     for r in routes()
         @info "Route" r=r
     end
-    up(8000, async=false)
+    up(8000, "0.0.0.0", async=false)
+    # Genie.AppServer.startup(8001, "0.0.0.0")
 end
 
 # function test()
