@@ -101,3 +101,5 @@ CMakeLists.txt.user*
 CMakeFiles
 *Cache.txt
 /build/
+/storage/
+
