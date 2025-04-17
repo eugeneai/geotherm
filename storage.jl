@@ -316,6 +316,7 @@ function getDefaultModel()
     mdl["H"] = "[0,0.4,0.4,0.02]"
     mdl["iref"] = "3"
     mdl["optimize"] = "false"
+    mdl["showMisfit"] = "true"
     mdl["uuid"] = config.defaultModelUUID
     return Result(mdl, OK, "Default model")
 end
@@ -856,13 +857,30 @@ route(API*"project/:uuid/calculate", method=POST) do
 
         m = mr.value
 
-        optimize =  m["optimize"]
+        opts = Set{String}()
+
+        optimize = m["optimize"]
+        showMisfit = m["showMisfit"]
 
         if typeof(optimize) == String
             optimize = optimize |> ep
         end
 
-        @info "Optimize flag"  optimize=optimize
+        if typeof(showMisfit) == String
+            showMisfit = showMisfit |> ep
+        end
+
+        # @info "Optimize flag"  optimize=optimize
+        # @info "ShowMisfit flag"  showMisfit=showMisfit
+
+        if optimize
+            push!(opts, "optimize")
+        end
+        if showMisfit
+            push!(opts, "misfits")
+        end
+
+        @info "Option Set" opts = opts
 
         ini = GTInit(m["q0"] |> ep
                      , m["D"] |> ep
@@ -872,7 +890,7 @@ route(API*"project/:uuid/calculate", method=POST) do
                      , m["P"] |> ep
                      , m["H"] |> ep
                      , m["iref"] |> ep
-                     , optimize
+                     , opts
                      )
 
         @debug "Data Frame in project (loaded)" df=prj["data"]
@@ -904,13 +922,13 @@ route(API*"project/:uuid/calculate", method=POST) do
 
         @debug "Data frame" df=df
 
-        gtRes = computeGeotherm(ini, df)
+        # gtRes = computeGeotherm(ini, df)
 
         figIO = IOBuffer()
         figChiIO = IOBuffer()
         figOptIO = IOBuffer()
 
-        gtOptRes = plot(gtRes, "", figIO, figChiIO, figOptIO)
+        gtOptRes = plot(ini, df, "", figIO, figChiIO, figOptIO)
 
         fig = figIO |> take! |> String
         if optimize

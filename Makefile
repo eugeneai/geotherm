@@ -2,7 +2,7 @@
 
 RS=rsync -Pav -e "ssh -i /home/eugeneai/.ssh/id_ed25519-gtherm" --delete-after
 server:
-	julia storage.jl
+	julia --project=v1.11 storage.jl
 
 gulp:
 	gulp
@@ -13,7 +13,7 @@ prod:
 dev:
 	gulp build:dev
 
-sync: 
+sync:
 	# ssh root -i ~/.ssh/id_ed25519-gtherm
 	$(RS) /mnt/data/gtherm/site/html\&css/ eugeneai@root:/srv/http/gtherm.ru/
 
@@ -28,4 +28,3 @@ mongo:
 # 4. db.figures
 msh:
 	mongosh mongodb://localhost/geotherm
-
