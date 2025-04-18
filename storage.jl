@@ -23,6 +23,8 @@ using BSON
 import Base
 using HCGeoTherm
 using HCGeoThermGraphics
+using Mustache
+
 
 # Sending JSON converts UUID into hex string,
 # see JS.lower
@@ -1000,7 +1002,9 @@ route(API*"project/:uuid/notebook.jl", method=GET) do
         prj = pdr.value;
 
         notebook = get(prj, "notebook") do
-            "# Notebook "
+            txt = read("notebook_template.jl", String)
+            # few file operations
+            "# Notebook " * uuid * "\n\n" * txt
             # rc = Result(DataDict("uuid"=>uuid), ERROR, "not found")
             # return rc
         end
