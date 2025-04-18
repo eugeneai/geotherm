@@ -989,6 +989,28 @@ route(API*"project/:uuid/graphs", method=POST) do
     end
 end
 
+route(API*"project/:uuid/notebook.jl", method=GET) do
+    Logging.with_logger(debug_logger) do
+        uuid=UUIDs.UUID(payload(:uuid))
+
+        pdr = getProjectData(uuid) do rc
+            return rj(rc)
+        end
+
+        prj = pdr.value;
+
+        notebook = get(prj, "notebook") do
+            "# Notebook "
+            # rc = Result(DataDict("uuid"=>uuid), ERROR, "not found")
+            # return rc
+        end
+
+        objs = []
+        @debug "NOTEBOOK" notebook=notebook prj=prj
+        notebook
+    end
+end
+
 route(API*"project/:uuid/figure/:key", method=GET) do
     Logging.with_logger(debug_logger) do
         uuid=UUIDs.UUID(payload(:uuid))
