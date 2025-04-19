@@ -991,9 +991,11 @@ route(API*"project/:uuid/graphs", method=POST) do
     end
 end
 
-route(API*"project/:uuid/notebook.jl", method=GET) do
+route(API*"project/:uuid/notebook/:name", method=GET) do
     Logging.with_logger(debug_logger) do
+
         uuid=UUIDs.UUID(payload(:uuid))
+        name=payload(:name)
 
         pdr = getProjectData(uuid) do rc
             return rj(rc)
@@ -1004,14 +1006,15 @@ route(API*"project/:uuid/notebook.jl", method=GET) do
         notebook = get(prj, "notebook") do
             txt = read("notebook_template.jl", String)
             # few file operations
-            "# Notebook " * uuid * "\n\n" * txt
+            txt * "\n\n# Notebook " * (uuid |> string)
             # rc = Result(DataDict("uuid"=>uuid), ERROR, "not found")
             # return rc
         end
 
         objs = []
         @debug "NOTEBOOK" notebook=notebook prj=prj
-        notebook
+        respond(notebook, :text)
+        # notebook
     end
 end
 

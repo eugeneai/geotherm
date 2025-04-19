@@ -1,13 +1,19 @@
 .PHONY: server gulp prod dev mongo msh
 
-JULIA=/usr/bin/julia
+JULIA=/usr/bin/julia --project=v1.11
 
 RS=rsync -Pav -e "ssh -i /home/eugeneai/.ssh/id_ed25519-gtherm" --delete-after
 server:
-	$(JULIA) --project=v1.11 storage.jl
+	$(JULIA) storage.jl
 
 project:
-	$(JULIA) --project=v1.11
+	$(JULIA)
+
+julia: project
+
+pluto:
+	# host=0.0.0.0, port=1234
+	$(JULIA) plutenb.jl
 
 gulp:
 	gulp
