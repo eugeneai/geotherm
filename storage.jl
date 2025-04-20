@@ -24,7 +24,7 @@ import Base
 using HCGeoTherm
 using HCGeoThermGraphics
 using Mustache
-
+import Base
 
 # Sending JSON converts UUID into hex string,
 # see JS.lower
@@ -65,6 +65,10 @@ end
 SU = Union{String, UUIDs.UUID}
 DataDict = Dict{SU, Any}
 sessionCache = Dict{SU, Result}()
+
+function Base.length(df::DataFrame)
+    nrow(df)
+end
 
 mutable struct Config
     debug::Bool
@@ -1022,7 +1026,10 @@ route(API*"project/:uuid/notebook/:name", method=GET) do
         end
 
         df = calculateProject!(prj; do_calculate=false)
-        context = DataDict("df"=>df, "dict_df"=>Dict(df), "prj"=>prj)
+        csv_io=IOBuffer()
+        CSV.write(csv_io, df)
+        df_csv = String(take!(csv_io))
+        context = DataDict("df"=>df, "df_csv"=>df_csv, "prj"=>prj)
         notebook = Mustache.render(notebook, context)
         @debug "NOTEBOOK" notebook=notebook context=context
         respond(notebook, :text)
