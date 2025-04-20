@@ -842,16 +842,8 @@ function saveFig!(prj::DataDict, svg::String, key::String)
     end
 end
 
-route(API*"project/:uuid/calculate", method=POST) do
+function calculateProject!(prj::DataDict; do_calculate = true)::DataFrame
     Logging.with_logger(debug_logger) do
-        uuid=UUIDs.UUID(payload(:uuid))
-
-        pdr = getProjectData(uuid) do rc
-            return rj(rc)
-        end
-
-        prj = pdr.value
-
         mr = getModelData(UUID(prj["model"]))
         if mr.level >= ERROR
             return rj(mr)
@@ -925,25 +917,42 @@ route(API*"project/:uuid/calculate", method=POST) do
         @debug "Data frame" df=df
 
         # gtRes = computeGeotherm(ini, df)
+        if do_calculate
+            figIO = IOBuffer()
+            figChiIO = IOBuffer()
+            figOptIO = IOBuffer()
 
-        figIO = IOBuffer()
-        figChiIO = IOBuffer()
-        figOptIO = IOBuffer()
+            gtOptRes = plot(ini, df, "", figIO, figChiIO, figOptIO)
 
-        gtOptRes = plot(ini, df, "", figIO, figChiIO, figOptIO)
+            fig = figIO |> take! |> String
+            if optimize
+                figChi = figChiIO |> take! |> String
+                figOpt = figOptIO |> take! |> String
+            end
 
-        fig = figIO |> take! |> String
-        if optimize
-            figChi = figChiIO |> take! |> String
-            figOpt = figOptIO |> take! |> String
+            removeFigs!(prj, false) # Remove old figures, do not update prj in KyotoCabinet
+            saveFig!(prj, fig, "geotherms")
+            if optimize
+                saveFig!(prj, figChi, "chisquare")
+                saveFig!(prj, figOpt, "optimized")
+            end
+        end
+        df
+    end
+end
+
+route(API*"project/:uuid/calculate", method=POST) do
+    Logging.with_logger(debug_logger) do
+        uuid=UUIDs.UUID(payload(:uuid))
+
+        pdr = getProjectData(uuid) do rc
+            return rj(rc)
         end
 
-        removeFigs!(prj, false) # Remove old figures, do not update prj in KyotoCabinet
-        saveFig!(prj, fig, "geotherms")
-        if optimize
-            saveFig!(prj, figChi, "chisquare")
-            saveFig!(prj, figOpt, "optimized")
-        end
+        prj = pdr.value
+
+        df = calculateProject!(prj)
+
         # prj collects new figures, old removed, not updated
         putData(prj)  # Save changes now!
 
@@ -1006,13 +1015,16 @@ route(API*"project/:uuid/notebook/:name", method=GET) do
         notebook = get(prj, "notebook") do
             txt = read("notebook_template.jl", String)
             # few file operations
-            txt * "\n\n# Notebook " * (uuid |> string)
+            txt
+            # * "\n\n# Notebook " * (uuid |> string)
             # rc = Result(DataDict("uuid"=>uuid), ERROR, "not found")
             # return rc
         end
 
-        objs = []
-        @debug "NOTEBOOK" notebook=notebook prj=prj
+        df = calculateProject!(prj; do_calculate=false)
+        context = DataDict("df"=>df, "dict_df"=>Dict(df), "prj"=>prj)
+        notebook = Mustache.render(notebook, context)
+        @debug "NOTEBOOK" notebook=notebook context=context
         respond(notebook, :text)
         # notebook
     end

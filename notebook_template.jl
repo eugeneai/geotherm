@@ -425,3 +425,6 @@ end
 # ╟─4119d19e-dcbc-11ea-3ec8-271e88e1afca
 # ╟─921bba30-dcbc-11ea-13c3-87554722da8a
 # ╟─5a6d1a8e-dcbc-11ea-272a-6f769c8d309c
+
+# notebook: {{ prj.uuid }}
+# df: {{ dict_df }}
