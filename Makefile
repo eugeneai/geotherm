@@ -13,7 +13,7 @@ julia: project
 
 pluto:
 	# host=0.0.0.0, port=1234
-	$(JULIA) plutenb.jl
+	$(JULIA) plutonb.jl
 
 gulp:
 	gulp
