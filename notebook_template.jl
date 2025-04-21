@@ -359,6 +359,13 @@ else
 	$(keep_working(md"The answer should be $(Int(n*(n+1)/2+1))."))"""
 end
 
+# ╔═╡ 03664f5c-d45c-11e0-0000-91cd647a07aa
+md"# Pluto Notebook for calculation and using model results
+## Loading initial model DataSet (```DataFrame```) to fit
+
+We load Your data, converted so as GeoTherm model can use it
+"
+
 # ╔═╡ e80986c6-d509-11ea-0000-f79a54b5ab31
 using DataFrames, CSV
 
@@ -382,11 +389,29 @@ termdf = begin
     CSV.read(csv_io, DataFrame)
 end
 
+# ╔═╡ 03664f5c-d45c-11e0-0001-91cd647a07aa
+md"## Set up initial conditions
+
+Here we set up initial conditions, for example *q0* as
+a value (```38```), a list of values (```[32,35,37]```) or a slice (```32:2:42```).
+"
+
 # ╔═╡ e80986c6-d509-11ea-0004-f79a54b5ab31
 modeldata = {{{ model }}}
 
+
+# ╔═╡ 03664f5c-d45c-11e0-0002-91cd647a07aa
+md"## Set up major model options
+
+Here we set define will we perform optimization stage: *\"optimize\"*,
+and will we show MisFit borders on the final scatter plot: *\"misfits\"*."
+
 # ╔═╡ e80986c6-d509-11ea-0005-f79a54b5ab31
 modeloptions = {{{ opts }}}
+
+# ╔═╡ 03664f5c-d45c-11e0-0003-91cd647a07aa
+md"Essentially, we can place major options directly here, and do not
+copy them from the ```modeldata``` and ```modeloptions``` variables."
 
 # ╔═╡ e80986c6-d509-11ea-0110-f79a54b5ab31
 ini = GTInit(modeldata["q0"]
@@ -400,15 +425,30 @@ ini = GTInit(modeldata["q0"]
              , modeloptions
              )
 
+# ╔═╡ 03664f5c-d45c-11e0-0004-91cd647a07aa
+md"## Calculate our model again
+
+Thanks to the Julia language outstanding execution speed, we can
+recalculate models on-line whenever a major parameter has changed."
+
+# ╔═╡ e80986c6-d509-11ea-0111-f79a54b5ab31
+result = computeGeotherm(ini, termdf)
+
 # ╔═╡ Cell order:
+# ╟─03664f5c-d45c-11e0-0000-91cd647a07aa
 # ╟─e80986c6-d509-11ea-0000-f79a54b5ab31
 # ╟─e80986c6-d509-11e9-00ff-f79a54b5ab31
 # ╟─e80986c6-d509-11e9-00fe-f79a54b5ab31
 # ╟─e80986c6-d509-11e9-00fd-f79a54b5ab31
 # ╟─e80986c6-d509-11ea-0001-f79a54b5ab31
+# ╟─03664f5c-d45c-11e0-0001-91cd647a07aa
 # ╟─e80986c6-d509-11ea-0004-f79a54b5ab31
+# ╟─03664f5c-d45c-11e0-0002-91cd647a07aa
 # ╟─e80986c6-d509-11ea-0005-f79a54b5ab31
-# ╟─e80986c6-d509-11ea-0110-f79a54b5ab31
+# ╟─03664f5c-d45c-11e0-0003-91cd647a07aa
+# ╠═e80986c6-d509-11ea-0110-f79a54b5ab31
+# ╟─03664f5c-d45c-11e0-0004-91cd647a07aa
+# ╟─e80986c6-d509-11ea-0111-f79a54b5ab31
 # ╟─03664f5c-d45c-11ea-21b6-91cd647a07aa
 # ╠═14158eb0-d45c-11ea-088f-330e45412321
 # ╠═14158eb0-d45c-11ea-088f-330e45412320
