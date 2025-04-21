@@ -794,6 +794,10 @@ function ep(s::String)::Any
     s |> Meta.parse |> eval
 end
 
+function ep(b::Bool)::Bool
+    b
+end
+
 function rmHeader(svg::String)::String
     lines = split(svg, "\n")
     xmlns = lines[2]
@@ -846,7 +850,7 @@ function saveFig!(prj::DataDict, svg::String, key::String)
     end
 end
 
-function calculateProject!(prj::DataDict; do_calculate = true)::DataFrame
+function calculateProject!(prj::DataDict; do_calculate = true)
     Logging.with_logger(debug_logger) do
         mr = getModelData(UUID(prj["model"]))
         if mr.level >= ERROR
@@ -941,7 +945,7 @@ function calculateProject!(prj::DataDict; do_calculate = true)::DataFrame
                 saveFig!(prj, figOpt, "optimized")
             end
         end
-        df
+        df, m, opts
     end
 end
 
@@ -955,7 +959,7 @@ route(API*"project/:uuid/calculate", method=POST) do
 
         prj = pdr.value
 
-        df = calculateProject!(prj)
+        df, model, opts = calculateProject!(prj)
 
         # prj collects new figures, old removed, not updated
         putData(prj)  # Save changes now!
@@ -1025,11 +1029,17 @@ route(API*"project/:uuid/notebook/:name", method=GET) do
             # return rc
         end
 
-        df = calculateProject!(prj; do_calculate=false)
+        df, model, opts  = calculateProject!(prj; do_calculate=false)
+        delete!(model, "user")
+        delete!(model, "uuid")
+        model = Dict(k => (v |> ep) for (k, v) in model)
+
         csv_io=IOBuffer()
         CSV.write(csv_io, df)
         df_csv = String(take!(csv_io))
-        context = DataDict("df"=>df, "df_csv"=>df_csv, "prj"=>prj)
+        context = DataDict("df"=>df, "df_csv"=>df_csv,
+                           "prj"=>prj, "model"=>model,
+                           "opts"=>opts)
         notebook = Mustache.render(notebook, context)
         @debug "NOTEBOOK" notebook=notebook context=context
         respond(notebook, :text)

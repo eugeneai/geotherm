@@ -360,24 +360,43 @@ else
 end
 
 # ╔═╡ e80986c6-d509-11ea-0000-f79a54b5ab31
-using DataFrames, CSV, HCGeoTherm, HCGeoThermGraphics
+using DataFrames, CSV, HCGeoTherm #, HCGeoThermGraphics
 
 # ╔═╡ e80986c6-d509-11ea-0001-f79a54b5ab31
-df_csv=raw"{{ df_csv }}"
+df_csv = raw"{{ df_csv }}"
 
 # ╔═╡ e80986c6-d509-11ea-0002-f79a54b5ab31
-csv_io=IOBuffer(df_csv)
+csv_io = IOBuffer(df_csv)
 
 # ╔═╡ e80986c6-d509-11ea-0003-f79a54b5ab31
-termdf=CSV.read(csv_io, DataFrame)
+termdf = CSV.read(csv_io, DataFrame)
 
+# ╔═╡ e80986c6-d509-11ea-0004-f79a54b5ab31
+modeldata = {{{ model }}}
 
+# ╔═╡ e80986c6-d509-11ea-0005-f79a54b5ab31
+modeloptions = {{{ opts }}}
+
+# ╔═╡ e80986c6-d509-11ea-0110-f79a54b5ab31
+ini = GTInit(modeldata["q0"]
+             , modeldata["D"]
+             , modeldata["Zbot"]
+             , modeldata["Zmax"]
+             , modeldata["Dz"]
+             , modeldata["P"]
+             , modeldata["H"]
+             , modeldata["iref"]
+             , modeloptions
+             )
 
 # ╔═╡ Cell order:
 # ╟─e80986c6-d509-11ea-0000-f79a54b5ab31
 # ╟─e80986c6-d509-11ea-0001-f79a54b5ab31
 # ╟─e80986c6-d509-11ea-0002-f79a54b5ab31
 # ╟─e80986c6-d509-11ea-0003-f79a54b5ab31
+# ╟─e80986c6-d509-11ea-0004-f79a54b5ab31
+# ╟─e80986c6-d509-11ea-0005-f79a54b5ab31
+# ╟─e80986c6-d509-11ea-0110-f79a54b5ab31
 # ╟─03664f5c-d45c-11ea-21b6-91cd647a07aa
 # ╠═14158eb0-d45c-11ea-088f-330e45412321
 # ╠═14158eb0-d45c-11ea-088f-330e45412320
