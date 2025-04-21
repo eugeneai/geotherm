@@ -1,6 +1,6 @@
 # This file is machine-generated - editing it directly is not advised
 
-julia_version = "1.11.5"
+julia_version = "1.11.1"
 manifest_format = "2.0"
 project_hash = "0dcab35c057ee16b13fa548fc8af04a1481ffbe4"
 
@@ -592,19 +592,19 @@ version = "1.0.2"
 
 [[deps.HCGeoTherm]]
 deps = ["DataFrames", "Format", "Interpolations", "Logging", "Optim"]
-git-tree-sha1 = "12f7764b574b169e4ef4cc81059d3f35e0e9ea75"
+git-tree-sha1 = "921e3eaeca0493451d0cab38d9c90f5d4224c3ec"
 repo-rev = "master"
 repo-url = "https://github.com/eugeneai/HCGeoTherm.jl"
 uuid = "28071b0f-1505-495f-9565-3513cfd1c620"
-version = "1.0.7"
+version = "1.0.8"
 
 [[deps.HCGeoThermGraphics]]
 deps = ["CSV", "DataFrames", "Format", "HCGeoTherm", "LaTeXStrings", "Plots"]
-git-tree-sha1 = "56e669dead546f7df8d9a78bd1088c328bc09b7a"
+git-tree-sha1 = "33fe84c29474173d0f1b013727b35515af0a658c"
 repo-rev = "master"
 repo-url = "https://github.com/eugeneai/HCGeoThermGraphics.jl"
 uuid = "52edfbc3-9dbd-449c-90fa-4028de0dba99"
-version = "1.0.6-DEV"
+version = "1.0.7-DEV"
 
 [[deps.HTTP]]
 deps = ["Base64", "CodecZlib", "ConcurrentUtilities", "Dates", "ExceptionUnwrapping", "Logging", "LoggingExtras", "MbedTLS", "NetworkOptions", "OpenSSL", "PrecompileTools", "Random", "SimpleBufferStream", "Sockets", "URIs", "UUIDs"]
@@ -1030,7 +1030,7 @@ version = "0.3.27+1"
 [[deps.OpenLibm_jll]]
 deps = ["Artifacts", "Libdl"]
 uuid = "05823500-19ac-5b8b-9628-191a04bc5112"
-version = "0.8.5+0"
+version = "0.8.1+2"
 
 [[deps.OpenSSL]]
 deps = ["BitFlags", "Dates", "MozillaCACerts_jll", "OpenSSL_jll", "Sockets"]
