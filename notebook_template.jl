@@ -360,16 +360,27 @@ else
 end
 
 # ╔═╡ e80986c6-d509-11ea-0000-f79a54b5ab31
-using DataFrames, CSV, HCGeoTherm #, HCGeoThermGraphics
+using DataFrames, CSV
+
+# ╔═╡ e80986c6-d509-11e9-00ff-f79a54b5ab31
+using Pkg
+
+# ╔═╡ e80986c6-d509-11e9-00fe-f79a54b5ab31
+begin
+    gh = "https://github.com/eugeneai/"
+    Pkg.add(url=(gh * "HCGeoTherm.jl"))
+    Pkg.add(url=(gh * "HCGeoThermGraphics.jl"))
+end
+
+# ╔═╡ e80986c6-d509-11e9-00fd-f79a54b5ab31
+using HCGeoTherm, HCGeoThermGraphics
 
 # ╔═╡ e80986c6-d509-11ea-0001-f79a54b5ab31
-df_csv = raw"{{ df_csv }}"
-
-# ╔═╡ e80986c6-d509-11ea-0002-f79a54b5ab31
-csv_io = IOBuffer(df_csv)
-
-# ╔═╡ e80986c6-d509-11ea-0003-f79a54b5ab31
-termdf = CSV.read(csv_io, DataFrame)
+termdf = begin
+    df_csv = raw"{{ df_csv }}"
+    csv_io = IOBuffer(df_csv)
+    CSV.read(csv_io, DataFrame)
+end
 
 # ╔═╡ e80986c6-d509-11ea-0004-f79a54b5ab31
 modeldata = {{{ model }}}
@@ -391,9 +402,10 @@ ini = GTInit(modeldata["q0"]
 
 # ╔═╡ Cell order:
 # ╟─e80986c6-d509-11ea-0000-f79a54b5ab31
+# ╟─e80986c6-d509-11e9-00ff-f79a54b5ab31
+# ╟─e80986c6-d509-11e9-00fe-f79a54b5ab31
+# ╟─e80986c6-d509-11e9-00fd-f79a54b5ab31
 # ╟─e80986c6-d509-11ea-0001-f79a54b5ab31
-# ╟─e80986c6-d509-11ea-0002-f79a54b5ab31
-# ╟─e80986c6-d509-11ea-0003-f79a54b5ab31
 # ╟─e80986c6-d509-11ea-0004-f79a54b5ab31
 # ╟─e80986c6-d509-11ea-0005-f79a54b5ab31
 # ╟─e80986c6-d509-11ea-0110-f79a54b5ab31
