@@ -28,7 +28,11 @@ as it will install environment.
 "
 
 # ╔═╡ e80986c6-d509-11e9-00fd-f79a54b5ab31
-using DataFrames, CSV, PlotlyLight, HCGeoTherm, HCGeoThermGraphics
+begin
+    using DataFrames, CSV
+    using HCGeoTherm, HCGeoThermGraphics
+    import PlotlyLight
+end
 
 # ╔═╡ e80986c6-d509-11e9-00f0-f79a54b5ab31
 termdf
@@ -77,8 +81,11 @@ recalculate models on-line whenever a major parameter has changed."
 # ╔═╡ e80986c6-d509-11ea-0111-f79a54b5ab31
 result = computeGeotherm(ini, termdf)
 
+# ╔═╡ 03664f5c-d45c-11ea-0112-91cd647a07aa
+md"## Plot main result"
 
-
+# ╔═╡ e80986c6-d509-11ea-0112-f79a54b5ab31
+# plotGeotherms(result)
 
 # ╔═╡ 03664f5c-d45c-11e0-0200-91cd647a07aa
 md"## Appendix A Set up necessary packages
@@ -107,6 +114,20 @@ termdf = begin
     CSV.read(csv_io, DataFrame)
 end
 
+# ╔═╡ e80986c6-d509-11ea-0301-f79a54b5ab31
+#function plt_gt(gt::Geotherm)
+#    P.plot!(plt, gt.T, gt.z, label=gt.label,
+#            linewith=3, yflip=true,
+#            legend=:bottomleft)
+#end
+
+# ╔═╡ e80986c6-d509-11ea-0302-f79a54b5ab31
+begin
+    p = PlotlyLight.plot(x = 1:20, y = cumsum(randn(20)),
+                         type="scatter", mode="lines")
+    p.layout.title.text = "Geotherm for each q0 value"  # Make changes
+    p
+end
 
 # ╔═╡ Cell order:
 # ╟─03664f5c-d45c-11e0-0000-91cd647a07aa
@@ -119,9 +140,13 @@ end
 # ╟─e80986c6-d509-11ea-0005-f79a54b5ab31
 # ╟─03664f5c-d45c-11e0-0003-91cd647a07aa
 # ╠═e80986c6-d509-11ea-0110-f79a54b5ab31
-# ╟─03664f5c-d45c-11e0-0004-91cd647a07aa
-# ╟─e80986c6-d509-11ea-0111-f79a54b5ab31
+# ╟─03664f5c-d45c-11ea-0112-91cd647a07aa
+# ╠═e80986c6-d509-11ea-0112-f79a54b5ab31
 # ╟─03664f5c-d45c-11e0-0200-91cd647a07aa
 # ╟─e80986c6-d509-11e9-00ff-f79a54b5ab31
 # ╟─e80986c6-d509-11e9-00fe-f79a54b5ab31
 # ╟─e80986c6-d509-11ea-0001-f79a54b5ab31
+# ╟─03664f5c-d45c-11e0-0004-91cd647a07aa
+# ╟─e80986c6-d509-11ea-0111-f79a54b5ab31
+# ╟─e80986c6-d509-11ea-0301-f79a54b5ab31
+# ╟─e80986c6-d509-11ea-0302-f79a54b5ab31
