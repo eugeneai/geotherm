@@ -31,7 +31,7 @@ as it will install environment.
 begin
     using DataFrames, CSV
     using HCGeoTherm, HCGeoThermGraphics
-    import PlotlyLight
+    import PlotlyLight as PL
 end
 
 # ╔═╡ e80986c6-d509-11e9-00f0-f79a54b5ab31
@@ -121,11 +121,35 @@ end
 #            legend=:bottomleft)
 #end
 
+
+# ╔═╡ 03664f5c-d45c-11e0-0210-91cd647a07aa
+md"### Set up view of graphics
+Presets (white, black, grids, etc) are
+[here](https://github.com/JuliaComputing/PlotlyLight.jl/blob/master/docs/src/templates.md)
+"
+
 # ╔═╡ e80986c6-d509-11ea-0302-f79a54b5ab31
 begin
-    p = PlotlyLight.plot(x = 1:20, y = cumsum(randn(20)),
-                         type="scatter", mode="lines")
+    answer = result["optimize"]
+    d = answer.D
+
+    p = PL.plot(x=d.T_C, y=d.D_km, type="scatter", mode="markers")
+
+    function plt_gt(gt)
+        p.plot(x=gt.T, y=gt.z, type="scatter", mode="lines")
+    end
+
+    foreach(plt_gt, answer.GT)
+
     p.layout.title.text = "Geotherm for each q0 value"  # Make changes
+	ya = p.layout.yaxis
+	xa = p.layout.xaxis
+    ya.autorange="reversed"
+	ya.range=[0, 2000]
+	ya.title.text="D, km"
+	xa.title.text="T, C"
+
+
     p
 end
 
@@ -149,4 +173,5 @@ end
 # ╟─03664f5c-d45c-11e0-0004-91cd647a07aa
 # ╟─e80986c6-d509-11ea-0111-f79a54b5ab31
 # ╟─e80986c6-d509-11ea-0301-f79a54b5ab31
+# ╟─03664f5c-d45c-11e0-0210-91cd647a07aa
 # ╟─e80986c6-d509-11ea-0302-f79a54b5ab31
