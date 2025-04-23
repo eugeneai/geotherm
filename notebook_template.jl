@@ -204,25 +204,34 @@ Now we try import data from csv file and process it."
 csvfile
 
 # ╔═╡ 5568793d-fd84-413f-8ce7-c84b5cc55a08
-newdf = begin
-	input = IOBuffer(csvfile["data"])
-	CSV.read(input, DataFrame, delim=';', decimal=',')
-end
+newdf_ =
+    if ! isnothing(csvfile)
+        input = IOBuffer(csvfile["data"])
+        # Adjust input format with parameter values
+        CSV.read(input, DataFrame, delim=';', decimal=',')
+    else
+        # No input data chosen, take user data as example
+        df_ = DataFrame(t=termdf.T_C)
+        # filter values out of extrapolation interval
+        filter(row -> row.t <= 1000, df_)
+    end
+
 
 # ╔═╡ 6a3eb029-7d30-4d28-9c9a-492337b0b3cd
 md"Now, let's apply model data interpolation to a DataFrame *t* column and save it to a variable. "
 
 # ╔═╡ ac587e76-db9b-4c72-9b37-7bc32a6ec1e3
-outD = optTtoZ(newdf.t)
+outD = optTtoZ(newdf_.t)
 
 # ╔═╡ 7803fa55-408d-4058-a877-a2d09ecf99e9
 md"Add new column with calculated depts in meters to the newly input DataFrame"
 
 # ╔═╡ 50f8a692-5a59-4140-8ede-17b4f65f3f86
-newdf.D = outD
-
-# ╔═╡ d8944b5f-94d7-4d22-a735-5db3fd82c545
-newdf
+begin
+    newdf = copy(newdf_)
+    newdf.D = outD
+    newdf
+end
 
 # ╔═╡ 16bcc669-c7db-47e9-88a5-612833014159
 md"And, finally, save result in a CSV-file."
@@ -382,7 +391,6 @@ end
 # ╠═ac587e76-db9b-4c72-9b37-7bc32a6ec1e3
 # ╟─7803fa55-408d-4058-a877-a2d09ecf99e9
 # ╠═50f8a692-5a59-4140-8ede-17b4f65f3f86
-# ╠═d8944b5f-94d7-4d22-a735-5db3fd82c545
 # ╟─16bcc669-c7db-47e9-88a5-612833014159
 # ╠═266919ec-87f8-4b02-9f88-89af19184eb5
 # ╟─03664f5c-d45c-11e0-0200-91cd647a07aa
