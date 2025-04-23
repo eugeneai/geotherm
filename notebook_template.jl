@@ -21,7 +21,7 @@ end
 # ╔═╡ 03664f5c-d45c-11e0-0000-91cd647a07aa
 md"# Calculation and using model results
 
-This page, so called \"*notebook*\" is an interactive tool for
+This page, so called \"*notebook*\", is an interactive tool for
 GeoTerm model computation and a further result usage. This notebook
 recalculates your model with data supplied again and again whenever a value is changed. Its usage requires knowledge of programming [Julia](https://julialang.org/learning/tutorials/) and [Pluto](https://computationalthinking.mit.edu/Spring21/installation/).
 
