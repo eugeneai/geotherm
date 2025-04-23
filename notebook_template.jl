@@ -20,11 +20,19 @@ end
 
 # ╔═╡ 03664f5c-d45c-11e0-0000-91cd647a07aa
 md"# Calculation and using model results
+
+This page, so called \"*notebook*\" is an interactive tool for
+GeoTerm model computation and a further result usage. This notebook
+recalculates your model with data supplied again and again whenever a value is changed. Its usage requires knowledge of programming [Julia](https://julialang.org/learning/tutorials/) and [Pluto](https://computationalthinking.mit.edu/Spring21/installation/).
+
+**Note:** *As of today, we cannot save the notebook on server, but You can save it (*export*) to your computer, and run it [locally](https://computationalthinking.mit.edu/Spring21/installation/), or on a [Binder cloud](https://mybinder.org/v2/gh/fonsp/pluto-on-binder/HEAD?urlpath=pluto/) (not really, I could not find a way yet), theoretically. If you press \"Pluto\" menu bar or reload this page the notebook will be regenerated, and You loose your work. So, please, process your data, save results (see a button below) before end your work.*
+
 ## Loading initial model DataSet (```DataFrame```) to fit
 
 We load Your data, converted so as GeoTherm model can use it.
-Note: This notebook will work very slowly for the first time
-as it will install environment.
+Note: This notebook will work **very slowly** (**really very slowly**)
+for the first time
+as it will install its model computation environment.
 "
 
 # ╔═╡ e80986c6-d509-11e9-00fd-f79a54b5ab31
@@ -32,7 +40,7 @@ begin
     using DataFrames, CSV
     using HCGeoTherm, HCGeoThermGraphics
     import PlotlyLight as PL
-    using Interpolations
+    using Interpolations, PlutoUI
 end
 
 # ╔═╡ e80986c6-d509-11e9-00f0-f79a54b5ab31
@@ -165,7 +173,7 @@ each value in meters. "
 Tv1 = optZtoT(Dv)
 
 # ╔═╡ 03664f5c-d45c-11ea-0515-91cd647a07aa
-md"## Join values into a DataFrame
+md"## Join values into a resulting DataFrame
 
 DataFrame is table, consisting of columns,
 each column has a name."
@@ -180,7 +188,10 @@ Both can be easily loaded with Excel or
 Libreoffice Calc applications."
 
 # ╔═╡ e80986c6-d509-11ea-0516-f79a54b5ab31
-CSV.write("TtoD.csv", TtoDdf)
+begin
+    outputFileName = "TtoD.csv"
+    DownloadButton(sprint(CSV.write, TtoDdf), outputFileName)
+end
 
 # ╔═╡ 03664f5c-d45c-11e0-0200-91cd647a07aa
 md"# Appendix A Set up necessary packages
@@ -201,6 +212,7 @@ begin
     Pkg.add("CSV")
     Pkg.add("PlotlyLight")
     Pkg.add("Interpolations")
+    Pkg.add("PlutoUI")
 end
 
 # ╔═╡ e80986c6-d509-11ea-0001-f79a54b5ab31
