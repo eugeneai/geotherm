@@ -19,7 +19,7 @@ end
 
 
 # ╔═╡ 03664f5c-d45c-11e0-0000-91cd647a07aa
-md"# Pluto Notebook for calculation and using model results
+md"# Calculation and using model results
 ## Loading initial model DataSet (```DataFrame```) to fit
 
 We load Your data, converted so as GeoTherm model can use it.
@@ -32,6 +32,7 @@ begin
     using DataFrames, CSV
     using HCGeoTherm, HCGeoThermGraphics
     import PlotlyLight as PL
+    using Interpolations
 end
 
 # ╔═╡ e80986c6-d509-11e9-00f0-f79a54b5ab31
@@ -72,6 +73,21 @@ ini = GTInit(modeldata["q0"]
              , modeloptions
              )
 
+# ╔═╡ 03664f5c-d45c-11e0-0140-91cd647a07aa
+md"## Main model result as a plot"
+
+# ╔═╡ e80986c6-d509-11ea-0140-f79a54b5ab31
+
+if "optimize" in modeloptions
+    if "misfits" in modeloptions
+        plotMisfit()
+    else
+        plotOptimal()
+    end
+else
+    plotSeries()
+end
+
 # ╔═╡ 03664f5c-d45c-11e0-0004-91cd647a07aa
 md"## Calculate our model again
 
@@ -82,13 +98,92 @@ recalculate models on-line whenever a major parameter has changed."
 result = computeGeotherm(ini, termdf)
 
 # ╔═╡ 03664f5c-d45c-11ea-0112-91cd647a07aa
-md"## Plot main result"
+md"## Implement interpolation functions for main result"
 
 # ╔═╡ e80986c6-d509-11ea-0112-f79a54b5ab31
-# plotGeotherms(result)
+begin
+    resultkeys = keys(result)
+    if "optimize" in resultkeys
+        resoptgt = result["optimize"].GT_opt
+        # T, C -> Z, meters
+        optTtoZ = linear_interpolation(resoptgt.T, resoptgt.z)
+        # Z, meters -> T,C
+        optZtoT = linear_interpolation(resoptgt.z, resoptgt.T)
+    end
+    # add conversion functions
+    function GPatoKm(p) # GPa -> km
+        p .* 30.4 .+ 6.3
+    end
+
+    function GPatom(p) # GPa -> m
+        (p .* 30.4 .+ 6.3) .* 1000
+    end
+
+    function KmtoGPa(d) # km -> GPa
+        (d .- 6.3) ./ 30.4
+    end
+
+    function mtoGPa(d) # m -> GPa
+        ((d ./ 1000) .- 6.3) ./ 30.4
+    end
+    nothing
+end
+
+# ╔═╡ 03664f5c-d45c-11ea-0113-91cd647a07aa
+md"## Use interpolation functions for **individual** values
+
+Calculate depth in meters by temperature.
+"
+
+# ╔═╡ e80986c6-d509-11ea-0113-f79a54b5ab31
+Di = optTtoZ(1000)
+
+# ╔═╡ 03664f5c-d45c-11ea-0114-91cd647a07aa
+md"Calculate temperature given depth in meters is given."
+
+# ╔═╡ e80986c6-d509-11ea-0114-f79a54b5ab31
+Ti = optZtoT(Di)
+
+# ╔═╡ 03664f5c-d45c-11ea-0513-91cd647a07aa
+md"## Use interpolation functions for **vector** values
+
+Calculate a vector of depths in meters by a temperature vector.
+"
+
+# ╔═╡ e80986c6-d509-11ea-0513-f79a54b5ab31
+Dv = begin
+    # the vector of temperatures
+    Tv = [200, 700, 1000, 1300]
+    optTtoZ(Tv)
+end
+
+# ╔═╡ 03664f5c-d45c-11ea-0514-91cd647a07aa
+md"Calculate the temperature vector by previously calculated pressure vector,
+each value in meters. "
+
+# ╔═╡ e80986c6-d509-11ea-0514-f79a54b5ab31
+Tv1 = optZtoT(Dv)
+
+# ╔═╡ 03664f5c-d45c-11ea-0515-91cd647a07aa
+md"## Join values into a DataFrame
+
+DataFrame is table, consisting of columns,
+each column has a name."
+
+# ╔═╡ e80986c6-d509-11ea-0515-f79a54b5ab31
+TtoDdf = DataFrame(D_m=Dv, T_C=Tv)
+
+# ╔═╡ 03664f5c-d45c-11ea-0516-91cd647a07aa
+md"DataFrames can be
+saved (*exported*) in CVS and XLSX format.
+Both can be easily loaded with Excel or
+Libreoffice Calc applications."
+
+# ╔═╡ e80986c6-d509-11ea-0516-f79a54b5ab31
+CSV.write("TtoD.csv", TtoDdf)
 
 # ╔═╡ 03664f5c-d45c-11e0-0200-91cd647a07aa
-md"## Appendix A Set up necessary packages
+md"# Appendix A Set up necessary packages
 
 These cells run before all other to setup
 the environment. Runs slowly for the first time.
@@ -105,6 +200,7 @@ begin
     Pkg.add("DataFrames")
     Pkg.add("CSV")
     Pkg.add("PlotlyLight")
+    Pkg.add("Interpolations")
 end
 
 # ╔═╡ e80986c6-d509-11ea-0001-f79a54b5ab31
@@ -128,29 +224,76 @@ Presets (white, black, grids, etc) are
 [here](https://github.com/JuliaComputing/PlotlyLight.jl/blob/master/docs/src/templates.md)
 "
 
+# ╔═╡ e80986c6-d509-11ea-1300-f79a54b5ab31
+begin
+    function plotGTerms(res::GTResult,
+                        p::Union{PL.Plot,Nothing}=nothing;
+                        data::Bool=true,
+                        series::Bool=false,
+                        optimal::Bool=false)::PL.Plot
+        d = res.D
+
+
+        if isnothing(p)
+            p = PL.plot()
+        end
+
+        p.plot(x=d.T_C, y=d.D_km, type="scatter", mode="markers", name="measured")
+
+        maxFirst = maximum(first(res.GT).T)
+        maxLast = maximum(last(res.GT).T)
+        maxFL = maximum([maxFirst, maxLast])
+
+        #    xlims=[0, ceil(maxFL/100)*100+100] # add 100 centegrees
+        #    ylims=[0, res.ini.zmax+100] # add 100 m of depth
+
+        function plt_gt(gt)
+            p.plot(x=gt.T, y=gt.z, type="scatter", mode="lines", name=gt.label)
+        end
+
+        if series
+            foreach(plt_gt, res.GT)
+        end
+
+        if optimal
+            ogt = res.GT_opt
+            p.plot(x=ogt.T, y=ogt.z,
+                   type="scatter", mode="lines", name=(ogt.label * "-opt"))
+        end
+
+        ya = p.layout.yaxis
+        xa = p.layout.xaxis
+        ya.autorange="reversed"
+        #    ya.range=ylims
+        ya.title.text="D, km"
+        xa.title.text="T, C"
+        #    xa.range=xlims
+        p
+    end
+    function plotSeries()::PL.Plot
+        answer = result["series"]
+        p = plotGTerms(answer; series=true)
+        p.layout.title.text = "Geotherms of each q0 value"
+        p
+    end
+    function plotOptimal()::PL.Plot
+        answer = result["optimize"]
+        p = plotGTerms(answer; optimal=true)
+        p.layout.title.text = "Geotherm for optimal q0 value"
+        p
+    end
+    function plotMisfit()::PL.Plot
+        answer = result["misfits"]
+        p = plotGTerms(answer; series=true)
+        p.layout.title.text = "Geotherms for optimal q0 value with MisFit"
+        p
+    end
+    nothing
+end
+
 # ╔═╡ e80986c6-d509-11ea-0302-f79a54b5ab31
 begin
-    answer = result["optimize"]
-    d = answer.D
-
-    p = PL.plot(x=d.T_C, y=d.D_km, type="scatter", mode="markers")
-
-    function plt_gt(gt)
-        p.plot(x=gt.T, y=gt.z, type="scatter", mode="lines")
-    end
-
-    foreach(plt_gt, answer.GT)
-
-    p.layout.title.text = "Geotherm for each q0 value"  # Make changes
-	ya = p.layout.yaxis
-	xa = p.layout.xaxis
-    ya.autorange="reversed"
-	ya.range=[0, 2000]
-	ya.title.text="D, km"
-	xa.title.text="T, C"
-
-
-    p
+    plotSeries()
 end
 
 # ╔═╡ Cell order:
@@ -164,8 +307,22 @@ end
 # ╟─e80986c6-d509-11ea-0005-f79a54b5ab31
 # ╟─03664f5c-d45c-11e0-0003-91cd647a07aa
 # ╠═e80986c6-d509-11ea-0110-f79a54b5ab31
+# ╟─03664f5c-d45c-11e0-0140-91cd647a07aa
+# ╟─e80986c6-d509-11ea-0140-f79a54b5ab31
 # ╟─03664f5c-d45c-11ea-0112-91cd647a07aa
 # ╠═e80986c6-d509-11ea-0112-f79a54b5ab31
+# ╟─03664f5c-d45c-11ea-0113-91cd647a07aa
+# ╠═e80986c6-d509-11ea-0113-f79a54b5ab31
+# ╟─03664f5c-d45c-11ea-0114-91cd647a07aa
+# ╠═e80986c6-d509-11ea-0114-f79a54b5ab31
+# ╟─03664f5c-d45c-11ea-0513-91cd647a07aa
+# ╠═e80986c6-d509-11ea-0513-f79a54b5ab31
+# ╟─03664f5c-d45c-11ea-0514-91cd647a07aa
+# ╠═e80986c6-d509-11ea-0514-f79a54b5ab31
+# ╟─03664f5c-d45c-11ea-0515-91cd647a07aa
+# ╠═e80986c6-d509-11ea-0515-f79a54b5ab31
+# ╟─03664f5c-d45c-11ea-0516-91cd647a07aa
+# ╠═e80986c6-d509-11ea-0516-f79a54b5ab31
 # ╟─03664f5c-d45c-11e0-0200-91cd647a07aa
 # ╟─e80986c6-d509-11e9-00ff-f79a54b5ab31
 # ╟─e80986c6-d509-11e9-00fe-f79a54b5ab31
@@ -174,4 +331,5 @@ end
 # ╟─e80986c6-d509-11ea-0111-f79a54b5ab31
 # ╟─e80986c6-d509-11ea-0301-f79a54b5ab31
 # ╟─03664f5c-d45c-11e0-0210-91cd647a07aa
+# ╟─e80986c6-d509-11ea-1300-f79a54b5ab31
 # ╟─e80986c6-d509-11ea-0302-f79a54b5ab31
