@@ -193,6 +193,46 @@ begin
     DownloadButton(sprint(CSV.write, TtoDdf), outputFileName)
 end
 
+# ╔═╡ 311f9300-22de-40b3-9f74-c471518a5597
+md"## Loading data from file on Your wonderful computer
+Now we try import data from csv file and process it."
+
+# ╔═╡ f5299cac-898a-4cee-8021-a8710d311533
+@bind csvfile PlutoUI.FilePicker([MIME("text/csv")])
+
+# ╔═╡ dcd06e6a-a2b7-4cb8-9346-5995c4f0332d
+csvfile
+
+# ╔═╡ 5568793d-fd84-413f-8ce7-c84b5cc55a08
+newdf = begin
+	input = IOBuffer(csvfile["data"])
+	CSV.read(input, DataFrame, delim=';', decimal=',')
+end
+
+# ╔═╡ 6a3eb029-7d30-4d28-9c9a-492337b0b3cd
+md"Now, let's apply model data interpolation to a DataFrame *t* column and save it to a variable. "
+
+# ╔═╡ ac587e76-db9b-4c72-9b37-7bc32a6ec1e3
+outD = optTtoZ(newdf.t)
+
+# ╔═╡ 7803fa55-408d-4058-a877-a2d09ecf99e9
+md"Add new column with calculated depts in meters to the newly input DataFrame"
+
+# ╔═╡ 50f8a692-5a59-4140-8ede-17b4f65f3f86
+newdf.D = outD
+
+# ╔═╡ d8944b5f-94d7-4d22-a735-5db3fd82c545
+newdf
+
+# ╔═╡ 16bcc669-c7db-47e9-88a5-612833014159
+md"And, finally, save result in a CSV-file."
+
+# ╔═╡ 266919ec-87f8-4b02-9f88-89af19184eb5
+begin
+    newOutputFileName = "new.csv"
+    DownloadButton(sprint(CSV.write, newdf), newOutputFileName)
+end
+
 # ╔═╡ 03664f5c-d45c-11e0-0200-91cd647a07aa
 md"# Appendix A Set up necessary packages
 
@@ -310,7 +350,6 @@ end
 
 # ╔═╡ Cell order:
 # ╟─03664f5c-d45c-11e0-0000-91cd647a07aa
-# ╟─e80986c6-d509-11ea-0000-f79a54b5ab31
 # ╟─e80986c6-d509-11e9-00fd-f79a54b5ab31
 # ╠═e80986c6-d509-11e9-00f0-f79a54b5ab31
 # ╟─03664f5c-d45c-11e0-0001-91cd647a07aa
@@ -333,8 +372,19 @@ end
 # ╠═e80986c6-d509-11ea-0514-f79a54b5ab31
 # ╟─03664f5c-d45c-11ea-0515-91cd647a07aa
 # ╠═e80986c6-d509-11ea-0515-f79a54b5ab31
-# ╟─03664f5c-d45c-11ea-0516-91cd647a07aa
+# ╠═03664f5c-d45c-11ea-0516-91cd647a07aa
 # ╠═e80986c6-d509-11ea-0516-f79a54b5ab31
+# ╟─311f9300-22de-40b3-9f74-c471518a5597
+# ╠═f5299cac-898a-4cee-8021-a8710d311533
+# ╟─dcd06e6a-a2b7-4cb8-9346-5995c4f0332d
+# ╠═5568793d-fd84-413f-8ce7-c84b5cc55a08
+# ╟─6a3eb029-7d30-4d28-9c9a-492337b0b3cd
+# ╠═ac587e76-db9b-4c72-9b37-7bc32a6ec1e3
+# ╟─7803fa55-408d-4058-a877-a2d09ecf99e9
+# ╠═50f8a692-5a59-4140-8ede-17b4f65f3f86
+# ╠═d8944b5f-94d7-4d22-a735-5db3fd82c545
+# ╟─16bcc669-c7db-47e9-88a5-612833014159
+# ╠═266919ec-87f8-4b02-9f88-89af19184eb5
 # ╟─03664f5c-d45c-11e0-0200-91cd647a07aa
 # ╟─e80986c6-d509-11e9-00ff-f79a54b5ab31
 # ╟─e80986c6-d509-11e9-00fe-f79a54b5ab31
