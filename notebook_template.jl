@@ -38,7 +38,7 @@ as it will install its model computation environment.
 # ╔═╡ e80986c6-d509-11e9-00fd-f79a54b5ab31
 begin
     using DataFrames, CSV
-    using HCGeoTherm, HCGeoThermGraphics
+    using HCGeoTherm
     import PlotlyLight as PL
     using Interpolations, PlutoUI
 end
@@ -103,7 +103,10 @@ Thanks to the Julia language outstanding execution speed, we can
 recalculate models on-line whenever a major parameter has changed."
 
 # ╔═╡ e80986c6-d509-11ea-0111-f79a54b5ab31
-result = computeGeotherm(ini, termdf)
+begin
+    result = computeGeotherm(ini, termdf)
+    nothing
+end
 
 # ╔═╡ 03664f5c-d45c-11ea-0112-91cd647a07aa
 md"## Implement interpolation functions for main result"
@@ -114,9 +117,9 @@ begin
     if "optimize" in resultkeys
         resoptgt = result["optimize"].GT_opt
         # T, C -> Z, km
-        optTtoZ = linear_interpolation(resoptgt.T, resoptgt.z)
+        optTtoZ = linear_interpolation(resoptgt.T, resoptgt.z, extrapolation_bc=Line())
         # Z, km -> T,C
-        optZtoT = linear_interpolation(resoptgt.z, resoptgt.T)
+        optZtoT = linear_interpolation(resoptgt.z, resoptgt.T, extrapolation_bc=Line())
     end
     # add conversion functions
     function GPatokm(p) # GPa -> km
@@ -197,16 +200,19 @@ Now we try import data from csv file and process it."
 csvfile
 
 # ╔═╡ 5568793d-fd84-413f-8ce7-c84b5cc55a08
-newdf_ =
+ldf =
     if ! isnothing(csvfile)
         input = IOBuffer(csvfile["data"])
-        # Adjust input format with parameter values
+        # Adjust input format with parameter values: decimal='.'
+        # delim='\t', etc.
         CSV.read(input, DataFrame, delim=';', decimal=',')
+        # filter values out of extrapolation interval
+        # filter(row -> row.t <= 1000, df_)
     else
         # No input data chosen, take user data as example
-        df_ = DataFrame(t=termdf.T_C)
+        DataFrame(t=termdf.T_C)
         # filter values out of extrapolation interval
-        filter(row -> row.t <= 1000, df_)
+        # filter(row -> row.t <= 1000, df_)
     end
 
 
@@ -214,14 +220,14 @@ newdf_ =
 md"Now, let's apply model data interpolation to a DataFrame *t* column and save it to a variable. "
 
 # ╔═╡ ac587e76-db9b-4c72-9b37-7bc32a6ec1e3
-outD = optTtoZ(newdf_.t)
+outD = optTtoZ(ldf.t)
 
 # ╔═╡ 7803fa55-408d-4058-a877-a2d09ecf99e9
 md"Add new column with calculated depts in km to the newly input DataFrame"
 
 # ╔═╡ 50f8a692-5a59-4140-8ede-17b4f65f3f86
 begin
-    newdf = copy(newdf_)
+    newdf = copy(ldf)
     newdf.D_km = outD
     newdf
 end
@@ -267,7 +273,6 @@ using Pkg
 begin
     gh = "https://github.com/eugeneai/"
     Pkg.add(url=(gh * "HCGeoTherm.jl"))
-    Pkg.add(url=(gh * "HCGeoThermGraphics.jl"))
     Pkg.add("DataFrames")
     Pkg.add("CSV")
     Pkg.add("PlotlyLight")
