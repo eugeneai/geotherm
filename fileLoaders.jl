@@ -62,7 +62,7 @@ function recognizeXlsx(buf)::OrderedDict{String,Any}
             # println("top-left:",cc,":",rs)
         end
         for c in cc:cc+maxwidth
-            col::Array{Union{String,Float64,Missing}} = []
+            col::Array{ValueType} = []
             stop = false
             found = false
             lastNotMissingRow = nothing

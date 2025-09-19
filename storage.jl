@@ -40,6 +40,8 @@ outfile = open("log.txt", "a")
 default_logger = Logging.global_logger(info_logger)
 # default_logger = Logging.global_logger(file_logger)
 
+ValueType = Union{String,Float64,Missing}
+
 include("fileLoaders.jl")
 
 ResultLevel=UInt8
@@ -159,6 +161,26 @@ end
 function Base.convert(t::Type{DataDict}, v::KC.Bytes)::DataDict
     io = IOBuffer(v)
     BSON.load(io)::t
+end
+
+function Base.convert(t::Type{ValueType}, x::Int64)::ValueType
+    Float64(x)
+end
+
+function Base.convert(t::Type{ValueType}, x::Int8)::ValueType
+    Float64(x)
+end
+
+function Base.convert(t::Type{ValueType}, x::Int16)::ValueType
+    Float64(x)
+end
+
+function Base.convert(t::Type{ValueType}, x::Int32)::ValueType
+    Float64(x)
+end
+
+function Base.convert(t::Type{ValueType}, x::Int128)::ValueType
+    Float64(x)
 end
 
 function _connDb(f::Function, dd::DD)
